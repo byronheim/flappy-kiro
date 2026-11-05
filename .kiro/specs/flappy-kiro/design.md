@@ -231,10 +231,11 @@ export function saveHighScore(value) { /* ... */ }
 /**
  * Resolve the effective CONFIG by merging layers in priority order
  * (later overrides earlier): defaults ← window.FLAPPY_CONFIG ← URL query params.
- * Every value is validated and clamped: locked (requirement-fixed) fields are
- * forced to their exact required value; range-valued fields are clamped into
- * their allowed range. Unknown keys and malformed values are ignored.
- * @param {object} [sources]  { global?: object, search?: string }  (defaults to window/location)
+ * Every value is validated and clamped: locked invariant fields are forced to
+ * the base value; range-valued fields (including the configurable gameplay
+ * parameters) are clamped into their allowed range. Unknown keys and malformed
+ * values are ignored. An optional `difficulty` source selects the base config.
+ * @param {object} [sources]  { global?: object, search?: string, difficulty?: string }
  * @returns {Config} a frozen CONFIG of the same shape constants.js exports
  */
 export function resolveConfig(sources) { /* ... */ }
@@ -375,8 +376,11 @@ Derived runtime values (resolved from factors and `Dims`):
 
 The effective CONFIG has two classes of field, enforced by `config.js` (full rules in [Configuration and Tuning](#configuration-and-tuning)):
 
-- **Locked (requirement-fixed)** — values the requirements fix exactly. These are **not exposed as tunable** by default; if an override or panel attempts to set them, `config.js` forces them back to the exact required value so a default-config run and the property tests are unaffected: `PIPE_SPEED_FACTOR` = 0.35 (Req 5.1), `PIPE_SPACING_FACTOR` = 0.5 (Req 5.2), `PIPE_GAP_MARGIN_FACTOR` = 0.1 (Req 5.3), `PIPE_GAP_GHOSTY_MULTIPLE` = 2.5 (Req 5.4), `MAX_FALL_SPEED` = 1200 (Req 4.3), `DT_MIN` = 0.016 / `DT_MAX` = 0.100 (Req 10.3), `CLOUD_OPACITY_MIN` = 0.2 / `CLOUD_OPACITY_MAX` = 0.8 (Req 1.7), `RESTART_LOCKOUT_MS` = 500 (Req 9.6).
-- **Tunable within range** — fields the requirements allow across a range, freely adjustable and clamped to their bounds: `GRAVITY` ∈ [800, 2400] (Req 4.1), `FLAP_IMPULSE` ∈ [300, 700] (Req 4.4), `GROUND_HEIGHT_FACTOR` ∈ [0.05, 0.20] (Req 1.2), `GHOSTY_HEIGHT_FACTOR` ∈ [0.05, 0.15] (Req 1.3), `CLOUD_MIN_SPEED` > 0 (Req 1.8), and `CLOUD_LAYER_FACTORS` (positive, ascending, each < 1 so layers stay slower than pipes and depth-ordered, Req 1.9).
+> **Update (configurability):** the game is now intentionally configurable, so the formerly requirement-fixed *gameplay* parameters (pipe speed, pipe spacing, gap margin, gap multiple, max fall speed) are no longer locked — they are tunable within sensible ranges (see below). The default values are unchanged, so a default-config run still behaves exactly as Requirements 1–10 specify; only the ability to deliberately change them has been added. Only true correctness/safety invariants remain locked.
+
+- **Locked (invariants)** — values that are correctness/safety guards rather than game-feel knobs. If an override or panel attempts to set them, `config.js` forces them back to the base value: `DT_MIN` = 0.016 / `DT_MAX` = 0.100 (the frame-time clamp that prevents a stall or backgrounded tab from teleporting Ghosty through a wall, Req 10.3), `CLOUD_OPACITY_MIN` = 0.2 / `CLOUD_OPACITY_MAX` = 0.8 (sky stays visible, Req 1.7), `RESTART_LOCKOUT_MS` = 500 (Req 9.6).
+- **Tunable within range** — freely adjustable, clamped to their bounds. The original ranged fields: `GRAVITY` ∈ [800, 2400] (Req 4.1), `FLAP_IMPULSE` ∈ [300, 700] (Req 4.4), `GROUND_HEIGHT_FACTOR` ∈ [0.05, 0.20] (Req 1.2), `GHOSTY_HEIGHT_FACTOR` ∈ [0.05, 0.15] (Req 1.3), `CLOUD_MIN_SPEED` > 0 (Req 1.8), `CLOUD_LAYER_FACTORS` (positive, ascending, each < 1, Req 1.9). Newly tunable gameplay fields (defaults still match Req 5 / 4.3): `PIPE_SPEED_FACTOR` ∈ [0.1, 0.8] (default 0.35), `PIPE_SPACING_FACTOR` ∈ [0.3, 1.0] (default 0.5), `PIPE_GAP_MARGIN_FACTOR` ∈ [0.05, 0.25] (default 0.1), `PIPE_GAP_GHOSTY_MULTIPLE` ∈ [1.5, 4.0] (default 2.5), `MAX_FALL_SPEED` ∈ [600, 1800] (default 1200).
+- **Difficulty presets** — Easy / Normal / Hard are a *sanctioned configuration layer* (`src/core/difficulty.js`) that sets the gameplay fields above to produce a named base config. Normal equals the defaults exactly. Difficulty is the base; dev overrides (global/URL/live panel) layer on top and are still clamped. Selectable in-game or via `?difficulty=easy|normal|hard`.
 
 ---
 
@@ -490,8 +494,8 @@ So the resolution order is: `defaults ← window.FLAPPY_CONFIG ← URL params �
 
 `config.js` **never applies a raw override**. Every candidate value passes through the same clamping discipline already used for flap impulse (Req 4.4) and dt (Req 10.3):
 
-- **Locked (requirement-fixed) fields** are not tunable by default. If an override or panel value targets one, `config.js` forces it to the exact required value. These are: pipe speed 0.35 (Req 5.1), pipe spacing 0.5·width (Req 5.2), gap margins 0.1·height (Req 5.3), gap height 2.5·Ghosty height (Req 5.4), max fall speed 1200 (Req 4.3), dt clamp [0.016, 0.100] (Req 10.3), cloud opacity [0.2, 0.8] (Req 1.7), restart lockout 500 ms (Req 9.6). Locking (rather than exposing them) guarantees a default-config run is unaffected and the property tests that assume these exact values still hold. If one is ever exposed for experimentation, it is clamped strictly to the required value / documented range, never beyond it.
-- **Tunable-within-range fields** are clamped to the nearest valid value in their range: gravity → [800, 2400], flap impulse → [300, 700], ground height factor → [0.05, 0.20], Ghosty height factor → [0.05, 0.15], cloud min speed → (0, ∞), cloud layer factors → positive, ascending, each < 1.
+- **Locked (invariant) fields** are forced back to the base value if an override targets them. These are the correctness/safety guards only: dt clamp [0.016, 0.100] (Req 10.3), cloud opacity [0.2, 0.8] (Req 1.7), restart lockout 500 ms (Req 9.6). Locking these guarantees an override can never produce a physically broken state (e.g. a huge dt that teleports Ghosty through a wall).
+- **Tunable-within-range fields** are clamped to the nearest valid value in their range: gravity → [800, 2400], flap impulse → [300, 700], ground height factor → [0.05, 0.20], Ghosty height factor → [0.05, 0.15], cloud min speed → (0, ∞), cloud layer factors → positive/ascending/<1, and the now-configurable gameplay fields: pipe speed → [0.1, 0.8], pipe spacing → [0.3, 1.0], gap margin → [0.05, 0.25], gap multiple → [1.5, 4.0], max fall speed → [600, 1800]. Defaults are unchanged, so a default run matches Requirements 1–10; clamping ensures an override is always valid even though these fields are no longer locked.
 - **Out-of-range or malformed values** (non-numeric, `NaN`, wrong type) are clamped to the nearest valid value, or ignored and left at the lower-priority value — never applied raw.
 - **Unknown keys** (not present in the default shape) are ignored.
 
@@ -514,7 +518,8 @@ URL query parameters (merged over the global object; friendly aliases map to CON
 ```
 index.html?gravity=2000&flapImpulse=520&groundHeight=0.15
 index.html?gravity=99999   -> clamped to 2400
-index.html?pipeSpeed=0.4   -> ignored/forced back to 0.35 (locked, Req 5.1)
+index.html?pipeSpeed=0.4   -> applied (now tunable; clamped into [0.1, 0.8])
+index.html?difficulty=hard -> selects the Hard preset as the config base
 index.html?wobble=3        -> ignored (unknown key)
 ```
 
@@ -539,7 +544,7 @@ index.html?wobble=3        -> ignored (unknown key)
 | Audio asset fails / autoplay blocked | `audio.play()` wraps the returned promise and swallows rejection; gameplay is unaffected. | 3.5, 9.1 (graceful) |
 | Long frame / tab backgrounded | `dt` clamp caps a single step; visibility pause discards hidden time. | 10.3, 10.4 |
 | Multiple collisions same frame | Single OR-ed condition → exactly one transition. | 6.4 |
-| Malformed / out-of-range config override (global object or URL param) | `config.js` clamps to the nearest valid value, or ignores it and keeps the lower-priority value; never applied raw. Locked fields are forced to their required value. | dev tooling (preserves 1.2, 1.3, 1.7, 4.1, 4.3, 4.4, 5.1–5.4, 9.6, 10.3) |
+| Malformed / out-of-range config override (global object or URL param) | `config.js` clamps to the nearest valid value, or ignores it and keeps the lower-priority value; never applied raw. Locked invariant fields are forced to the base value. | dev tooling (preserves invariants 1.7, 9.6, 10.3; defaults still match 1–10) |
 | Unknown config key in override or URL | `config.js` ignores keys not present in the default shape. | dev tooling |
 | Invalid tuning-panel input (empty, non-numeric, out of range) | `config.js` clamps on re-resolve; the panel reflects the clamped effective value so it can never escape range. | dev tooling |
 
@@ -715,7 +720,7 @@ Kept intentionally lean — property tests cover breadth, so example tests focus
 - **Default run equals pre-tuning behavior:** with no global object, no URL params, and no live overrides, the effective CONFIG is value-equal to `constants.js` — this is the key guard that the feature does not change Requirements 1–10 behavior.
 - **Merge precedence:** defaults ← global object ← URL params ← live overrides; a URL param overrides the same key in the global object, and a live override overrides both (e.g. `GRAVITY` set at each layer resolves to the last).
 - **Tunable clamping:** out-of-range `gravity` clamps into [800, 2400] (e.g. `99999 → 2400`, `0 → 800`); `GHOSTY_HEIGHT_FACTOR: 0.3 → 0.15`; flap impulse clamps into [300, 700].
-- **Locked fields cannot move:** a requirement-fixed value such as pipe speed (0.35) cannot be changed by any override — it resolves back to 0.35 (likewise spacing 0.5, gap margins 0.1, gap multiple 2.5, max fall speed 1200, dt clamp, cloud opacity, restart lockout 500 ms).
+- **Invariant fields cannot move:** a locked invariant (dt clamp, cloud opacity, restart lockout 500 ms) cannot be changed by any override — it resolves back to the base value. The formerly-locked gameplay fields (pipe speed, spacing, gap margin, gap multiple, max fall speed) are now tunable and clamp into their ranges instead.
 - **Unknown keys ignored:** an override/URL key not in the default shape (e.g. `wobble`) leaves the effective CONFIG unchanged.
 - **Malformed values:** non-numeric / `NaN` URL params are clamped or ignored, never applied raw.
 - **Frozen shape:** the returned CONFIG is frozen and has the same keys as `constants.js`.

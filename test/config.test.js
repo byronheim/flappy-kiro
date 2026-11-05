@@ -36,24 +36,57 @@ test('tunable clamping: gravity, ghosty height, flap impulse', () => {
   assert.equal(resolveConfig({ global: { FLAP_IMPULSE: 5000 }, search: '' }).FLAP_IMPULSE, 700);
 });
 
-test('locked fields cannot be changed by any override', () => {
+test('invariant fields cannot be changed by any override', () => {
+  // Only true safety/correctness invariants remain locked: the dt clamp band,
+  // cloud opacity bounds, and the restart lockout.
   const cfg = resolveConfig({
     global: {
-      PIPE_SPEED_FACTOR: 0.9,
-      PIPE_SPACING_FACTOR: 0.1,
-      PIPE_GAP_MARGIN_FACTOR: 0.5,
-      PIPE_GAP_GHOSTY_MULTIPLE: 9,
-      MAX_FALL_SPEED: 50,
+      DT_MIN: 0.5,
+      DT_MAX: 2,
+      CLOUD_OPACITY_MIN: 0,
+      CLOUD_OPACITY_MAX: 1,
       RESTART_LOCKOUT_MS: 10,
     },
-    search: '?pipeSpeed=0.4',
+    search: '?difficulty=normal',
   });
-  assert.equal(cfg.PIPE_SPEED_FACTOR, 0.35);
-  assert.equal(cfg.PIPE_SPACING_FACTOR, 0.5);
-  assert.equal(cfg.PIPE_GAP_MARGIN_FACTOR, 0.1);
-  assert.equal(cfg.PIPE_GAP_GHOSTY_MULTIPLE, 2.5);
-  assert.equal(cfg.MAX_FALL_SPEED, 1200);
-  assert.equal(cfg.RESTART_LOCKOUT_MS, 500);
+  assert.equal(cfg.DT_MIN, DEFAULTS.DT_MIN);
+  assert.equal(cfg.DT_MAX, DEFAULTS.DT_MAX);
+  assert.equal(cfg.CLOUD_OPACITY_MIN, DEFAULTS.CLOUD_OPACITY_MIN);
+  assert.equal(cfg.CLOUD_OPACITY_MAX, DEFAULTS.CLOUD_OPACITY_MAX);
+  assert.equal(cfg.RESTART_LOCKOUT_MS, DEFAULTS.RESTART_LOCKOUT_MS);
+});
+
+test('previously-locked gameplay fields are now tunable within range', () => {
+  // In-range values apply as given.
+  const inRange = resolveConfig({
+    global: {
+      PIPE_SPEED_FACTOR: 0.5,
+      PIPE_SPACING_FACTOR: 0.7,
+      PIPE_GAP_GHOSTY_MULTIPLE: 3.0,
+      MAX_FALL_SPEED: 1000,
+    },
+  });
+  assert.equal(inRange.PIPE_SPEED_FACTOR, 0.5);
+  assert.equal(inRange.PIPE_SPACING_FACTOR, 0.7);
+  assert.equal(inRange.PIPE_GAP_GHOSTY_MULTIPLE, 3.0);
+  assert.equal(inRange.MAX_FALL_SPEED, 1000);
+
+  // Out-of-range values clamp to the nearest bound (never applied raw).
+  const clamped = resolveConfig({
+    global: {
+      PIPE_SPEED_FACTOR: 9, // -> 0.8
+      PIPE_GAP_MARGIN_FACTOR: 0.0001, // -> 0.05
+      MAX_FALL_SPEED: 50, // -> 600
+    },
+  });
+  assert.equal(clamped.PIPE_SPEED_FACTOR, 0.8);
+  assert.equal(clamped.PIPE_GAP_MARGIN_FACTOR, 0.05);
+  assert.equal(clamped.MAX_FALL_SPEED, 600);
+
+  // URL aliases also work for the newly tunable fields.
+  const viaUrl = resolveConfig({ search: '?pipeSpacing=0.9&gapMultiple=2.0' });
+  assert.equal(viaUrl.PIPE_SPACING_FACTOR, 0.9);
+  assert.equal(viaUrl.PIPE_GAP_GHOSTY_MULTIPLE, 2.0);
 });
 
 test('unknown keys are ignored', () => {

@@ -4,6 +4,7 @@
 //
 // Design "Module responsibilities > main.js", "Architecture".
 import { createWorld } from '../core/engine.js';
+import { DEFAULT_DIFFICULTY } from '../core/difficulty.js';
 import { resolveConfig, withLiveOverrides } from './config.js';
 import { loadHighScore, saveHighScore } from './storage.js';
 import { createInput } from './input.js';
@@ -42,8 +43,9 @@ async function main() {
     groundHeight: 0, // resolved below from the effective config
   };
 
-  // Effective config (defaults <- window.FLAPPY_CONFIG <- URL params).
-  let config = resolveConfig();
+  // Effective config, built from the chosen difficulty base plus any overrides.
+  let difficulty = DEFAULT_DIFFICULTY;
+  let config = resolveConfig({ difficulty });
   dims.groundHeight = Math.round(config.GROUND_HEIGHT_FACTOR * dims.height);
 
   // Load assets. Sprite failure falls back to a placeholder (Req 1.4).
@@ -64,24 +66,47 @@ async function main() {
 
   const input = createInput(canvas);
 
+  let liveOverrides = {};
+
   // Mount the dev tuning panel; edits re-resolve config live.
   const panel = createTuningPanel({
     defaults: config,
     onChange: (raw) => {
-      config = withLiveOverrides(raw);
+      liveOverrides = raw;
+      config = withLiveOverrides(raw, { difficulty });
       // Keep ground height in sync with any live factor change.
       world = { ...world, dims: { ...world.dims, groundHeight: Math.round(config.GROUND_HEIGHT_FACTOR * dims.height) } };
       return config;
     },
   });
-  const toggleBtn = document.getElementById('tuning-toggle');
-  if (toggleBtn) toggleBtn.addEventListener('click', () => panel.toggle());
+  const gearBtn = document.getElementById('gear-btn');
+  if (gearBtn) gearBtn.addEventListener('click', () => panel.toggle());
+
+  // Difficulty selector: switching rebuilds the config from the new base and
+  // resets to a fresh Ready world so the new gap/speed/gravity take effect.
+  const applyDifficulty = (name) => {
+    difficulty = name;
+    config = withLiveOverrides(liveOverrides, { difficulty });
+    dims.groundHeight = Math.round(config.GROUND_HEIGHT_FACTOR * dims.height);
+    world = createWorld(dims, world.highScore, config);
+  };
+  const diffBar = document.getElementById('difficulty-bar');
+  if (diffBar) {
+    diffBar.addEventListener('click', (event) => {
+      const btn = event.target.closest('button[data-difficulty]');
+      if (!btn) return;
+      applyDifficulty(btn.dataset.difficulty);
+      for (const b of diffBar.querySelectorAll('button[data-difficulty]')) {
+        b.classList.toggle('active', b === btn);
+      }
+    });
+  }
 
   startLoop({
     getState: () => world,
     setState: (w) => { world = w; },
     input,
-    render: (w) => render(ctx, w, assets),
+    render: (w) => render(ctx, w, assets, config),
     audio,
     storage: { saveHighScore },
     getConfig: () => config,

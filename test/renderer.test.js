@@ -37,6 +37,15 @@ function recordingCtx() {
     drawImage(img, x, y, w, h) {
       calls.push({ op: 'drawImage', x, y, w, h });
     },
+    beginPath() {
+      calls.push({ op: 'beginPath' });
+    },
+    arc(x, y, r, start, end) {
+      calls.push({ op: 'arc', x, y, r, start, end });
+    },
+    fill() {
+      calls.push({ op: 'fill' });
+    },
   };
   return ctx;
 }
@@ -97,7 +106,7 @@ test('HUD shows current and high score as integers (Req 7.3, 7.4)', () => {
   render(ctx, world, loadedAssets);
   const texts = ctx.calls.filter((c) => c.op === 'fillText').map((c) => c.text);
   assert.ok(texts.some((t) => t.includes('Score: 3')));
-  assert.ok(texts.some((t) => t.includes('Best: 9')));
+  assert.ok(texts.some((t) => t.includes('High: 9')));
 });
 
 test('Ready overlay shows start prompt (Req 2.3)', () => {

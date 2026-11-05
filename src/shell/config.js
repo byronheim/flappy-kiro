@@ -6,27 +6,41 @@
 //
 // Design "Configuration and Tuning".
 import { CONFIG as DEFAULTS } from '../core/constants.js';
+import { configForDifficulty, isDifficulty } from '../core/difficulty.js';
 
-// Fields the requirements fix exactly. Overrides are forced back to these.
-const LOCKED = {
-  PIPE_SPEED_FACTOR: 0.35,
-  PIPE_SPACING_FACTOR: 0.5,
-  PIPE_GAP_MARGIN_FACTOR: 0.1,
-  PIPE_GAP_GHOSTY_MULTIPLE: 2.5,
-  MAX_FALL_SPEED: 1200,
-  DT_MIN: 0.016,
-  DT_MAX: 0.1,
-  CLOUD_OPACITY_MIN: 0.2,
-  CLOUD_OPACITY_MAX: 0.8,
-  RESTART_LOCKOUT_MS: 500,
-};
+// True invariants: dev-facing overrides (global object, URL params, live panel)
+// may not change these, and they are forced back to the BASE config's value.
+// These are correctness/safety guards, not game-feel knobs:
+//   - DT_MIN/DT_MAX: the frame-time clamp that stops a stall or a backgrounded
+//     tab from teleporting Ghosty through a wall.
+//   - CLOUD_OPACITY_MIN/MAX: keeps the sky visible through clouds (Req 1.7).
+//   - RESTART_LOCKOUT_MS: the post-crash input lockout (Req 9.6).
+// The base is normally constants.js, but a sanctioned game feature (e.g. a
+// difficulty preset) may supply a different base; locking is relative to that
+// base. (Design "Configuration and Tuning")
+const LOCKED_KEYS = [
+  'DT_MIN',
+  'DT_MAX',
+  'CLOUD_OPACITY_MIN',
+  'CLOUD_OPACITY_MAX',
+  'RESTART_LOCKOUT_MS',
+];
 
-// Range-valued fields: [min, max].
+// Range-valued fields: [min, max]. Overrides are clamped into the range. The
+// gameplay fields below were previously locked to spec-fixed values; they are
+// now freely tunable within sensible ranges so the game is configurable, while
+// clamping still guarantees an override can never produce an invalid state.
 const RANGES = {
   GRAVITY: [800, 2400],
   FLAP_IMPULSE: [300, 700],
   GROUND_HEIGHT_FACTOR: [0.05, 0.2],
   GHOSTY_HEIGHT_FACTOR: [0.05, 0.15],
+  // Newly tunable gameplay parameters:
+  PIPE_SPEED_FACTOR: [0.1, 0.8], // play-area widths per second
+  PIPE_SPACING_FACTOR: [0.3, 1.0], // * play-area width between pipe pairs
+  PIPE_GAP_MARGIN_FACTOR: [0.05, 0.25], // * play-area height, top & bottom
+  PIPE_GAP_GHOSTY_MULTIPLE: [1.5, 4.0], // gap height = N * Ghosty height
+  MAX_FALL_SPEED: [600, 1800], // px/s cap on downward velocity
 };
 
 // Friendly URL aliases -> CONFIG keys.
@@ -37,6 +51,10 @@ const URL_ALIASES = {
   ghostyHeight: 'GHOSTY_HEIGHT_FACTOR',
   cloudMinSpeed: 'CLOUD_MIN_SPEED',
   pipeSpeed: 'PIPE_SPEED_FACTOR',
+  pipeSpacing: 'PIPE_SPACING_FACTOR',
+  gapMargin: 'PIPE_GAP_MARGIN_FACTOR',
+  gapMultiple: 'PIPE_GAP_GHOSTY_MULTIPLE',
+  maxFallSpeed: 'MAX_FALL_SPEED',
 };
 
 function clamp(value, min, max) {
@@ -60,9 +78,11 @@ export function clampConfig(base, rawPartial) {
   for (const key of Object.keys(partial)) {
     if (!(key in DEFAULTS)) continue; // unknown key ignored
 
-    // Locked: force to the exact required value regardless of the override.
-    if (key in LOCKED) {
-      out[key] = LOCKED[key];
+    // Locked: force back to the base value regardless of the override. The base
+    // defines the authoritative value (constants.js by default, or a difficulty
+    // preset), so a stray dev override cannot move it.
+    if (LOCKED_KEYS.includes(key)) {
+      out[key] = base[key];
       continue;
     }
 
@@ -80,8 +100,8 @@ export function clampConfig(base, rawPartial) {
     }
   }
 
-  // Ensure locked fields are correct even if absent from the override.
-  for (const key of Object.keys(LOCKED)) out[key] = LOCKED[key];
+  // Locked fields always keep the base value even if absent from the override.
+  for (const key of LOCKED_KEYS) out[key] = base[key];
 
   return Object.freeze(out);
 }
@@ -99,8 +119,28 @@ function parseSearch(search) {
 }
 
 /**
- * Resolve the effective CONFIG by merging defaults <- global <- URL params.
- * @param {{ global?: object, search?: string }} [sources]
+ * Resolve the difficulty base config. Priority: an explicit `difficulty`
+ * source, else a `difficulty` URL param, else the default difficulty (Normal,
+ * which equals constants.js).
+ */
+function resolveBase(src) {
+  if (src.difficulty && isDifficulty(src.difficulty)) {
+    return configForDifficulty(src.difficulty);
+  }
+  const search =
+    src.search || (typeof location !== 'undefined' && location.search) || '';
+  if (search) {
+    const params = new URLSearchParams(search.startsWith('?') ? search : `?${search}`);
+    const d = params.get('difficulty');
+    if (d && isDifficulty(d)) return configForDifficulty(d);
+  }
+  return DEFAULTS;
+}
+
+/**
+ * Resolve the effective CONFIG by merging base <- global <- URL params, where
+ * base is the difficulty preset (defaults to Normal = constants.js).
+ * @param {{ global?: object, search?: string, difficulty?: string }} [sources]
  * @returns {object} frozen config
  */
 export function resolveConfig(sources) {
@@ -114,8 +154,9 @@ export function resolveConfig(sources) {
     (typeof location !== 'undefined' && location.search) ||
     '';
 
-  // Merge global then URL (URL wins), both clamped against the defaults.
-  let cfg = clampConfig(DEFAULTS, global);
+  const base = resolveBase(src);
+  // Merge global then URL (URL wins), both clamped against the difficulty base.
+  let cfg = clampConfig(base, global);
   cfg = clampConfig(cfg, parseSearch(search));
   return cfg;
 }
@@ -123,7 +164,7 @@ export function resolveConfig(sources) {
 /**
  * Re-resolve including live panel overrides applied last.
  * @param {object} liveOverrides
- * @param {{ global?: object, search?: string }} [sources]
+ * @param {{ global?: object, search?: string, difficulty?: string }} [sources]
  * @returns {object} frozen config
  */
 export function withLiveOverrides(liveOverrides, sources) {

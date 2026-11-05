@@ -13,27 +13,104 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        font-family: monospace;
+        font-family: sans-serif;
+      }
+      /* Stage wraps the canvas so controls can be positioned over the
+         in-game "ground" footer. Its size tracks the canvas. */
+      #stage {
+        position: relative;
+        line-height: 0;
       }
       #game {
         image-rendering: pixelated;
-        background: #6ec6ff;
+        background: #7ec4e6;
         touch-action: none;
+        display: block;
       }
-      #tuning-toggle {
-        position: fixed;
-        bottom: 8px;
-        right: 8px;
+      /* Controls live inside the ground strip (bottom ~8% of the canvas),
+         right-justified. */
+      #controls {
+        position: absolute;
+        right: 10px;
+        bottom: 0;
+        height: 43px; /* matches GROUND_HEIGHT_FACTOR (0.08) * 540 */
+        display: flex;
+        align-items: center;
+        gap: 6px;
         z-index: 1000;
-        font-family: monospace;
+        line-height: normal;
+      }
+      #difficulty-bar {
+        display: flex;
+        gap: 4px;
+        align-items: center;
+      }
+      .diff-btn {
+        font-family: sans-serif;
+        font-size: 12px;
+        cursor: pointer;
+        border: 1px solid rgba(255, 255, 255, 0.35);
+        background: rgba(255, 255, 255, 0.12);
+        color: #fff;
+        border-radius: 4px;
+        padding: 3px 8px;
+      }
+      .diff-btn:hover {
+        background: rgba(255, 255, 255, 0.22);
+      }
+      .diff-btn.active {
+        background: #4caf3e;
+        border-color: #4caf3e;
+        color: #fff;
+        font-weight: bold;
+      }
+      /* Gear icon button to open the configuration (tuning) panel. */
+      #gear-btn {
+        width: 26px;
+        height: 26px;
+        padding: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        border: 1px solid rgba(255, 255, 255, 0.35);
+        background: rgba(255, 255, 255, 0.12);
+        border-radius: 4px;
+        color: #fff;
+      }
+      #gear-btn:hover {
+        background: rgba(255, 255, 255, 0.22);
+      }
+      #gear-btn svg {
+        width: 16px;
+        height: 16px;
+        display: block;
       }
     </style>
   </head>
   <body>
-    <!-- Play_Area canvas. Sized to the game's internal resolution. -->
-    <canvas id="game" width="400" height="600"></canvas>
-    <!-- Dev-only tuning panel toggle (press backtick ` as well). -->
-    <button id="tuning-toggle" type="button">Toggle tuning panel</button>
+    <div id="stage">
+      <!-- Play_Area canvas. Wider aspect for a side-scroller. -->
+      <canvas id="game" width="960" height="540"></canvas>
+
+      <!-- Controls overlaid on the in-game ground footer, right-justified. -->
+      <div id="controls">
+        <div id="difficulty-bar">
+          <button type="button" class="diff-btn" data-difficulty="easy">Easy</button>
+          <button type="button" class="diff-btn active" data-difficulty="normal">Normal</button>
+          <button type="button" class="diff-btn" data-difficulty="hard">Hard</button>
+        </div>
+        <!-- Gear icon opens the configuration panel (backtick ` also toggles). -->
+        <button id="gear-btn" type="button" title="Configuration" aria-label="Configuration">
+          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path
+              d="M19.14 12.94a7.49 7.49 0 0 0 .05-.94 7.49 7.49 0 0 0-.05-.94l2.03-1.58a.5.5 0 0 0 .12-.61l-1.92-3.32a.5.5 0 0 0-.59-.22l-2.39.96a7.03 7.03 0 0 0-1.62-.94l-.36-2.54A.5.5 0 0 0 13.96 2h-3.84a.5.5 0 0 0-.49.42l-.36 2.54c-.59.24-1.13.56-1.62.94l-2.39-.96a.5.5 0 0 0-.59.22L2.75 8.48a.5.5 0 0 0 .12.61l2.03 1.58c-.03.31-.05.63-.05.94 0 .31.02.63.05.94l-2.03 1.58a.5.5 0 0 0-.12.61l1.92 3.32c.13.23.42.31.65.22l2.39-.96c.49.38 1.03.7 1.62.94l.36 2.54c.04.24.25.42.49.42h3.84c.25 0 .45-.18.49-.42l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.23.09.52.01.65-.22l1.92-3.32a.5.5 0 0 0-.12-.61l-2.03-1.58ZM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7Z"
+              fill="currentColor"
+            />
+          </svg>
+        </button>
+      </div>
+    </div>
 
     <!-- No build step: load the ES module entry directly. -->
     <script type="module" src="src/shell/main.js"></script>

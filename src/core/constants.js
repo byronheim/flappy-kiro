@@ -9,8 +9,8 @@
 
 export const CONFIG = Object.freeze({
   // Scene (Req 1)
-  GROUND_HEIGHT_FACTOR: 0.12, // Req 1.2: within [0.05, 0.20]
-  GHOSTY_HEIGHT_FACTOR: 0.1, // Req 1.3: within [0.05, 0.15]
+  GROUND_HEIGHT_FACTOR: 0.08, // Req 1.2: within [0.05, 0.20]
+  GHOSTY_HEIGHT_FACTOR: 0.06, // Req 1.3: within [0.05, 0.15] (small ghost, matches reference)
   CLOUD_OPACITY_MIN: 0.2, // Req 1.7
   CLOUD_OPACITY_MAX: 0.8, // Req 1.7
   CLOUD_MIN_SPEED: 10, // Req 1.8: px/s > 0, floor independent of pipe speed
@@ -27,8 +27,10 @@ export const CONFIG = Object.freeze({
   PIPE_SPEED_FACTOR: 0.35, // Req 5.1: play-area widths per second
   PIPE_SPACING_FACTOR: 0.5, // Req 5.2: * play-area width
   PIPE_GAP_MARGIN_FACTOR: 0.1, // Req 5.3: * play-area height, top & bottom
-  PIPE_GAP_GHOSTY_MULTIPLE: 2.5, // Req 5.4: gap = 2.5 * Ghosty height
-  PIPE_WIDTH_FACTOR: 0.12, // pipe rectangle width, * play-area width
+  PIPE_GAP_GHOSTY_MULTIPLE: 3.0, // Req 5.4: gap = 3.0 * Ghosty height (smaller sprite -> wider relative gap)
+  PIPE_WIDTH_FACTOR: 0.06, // slender pipe column width, * play-area width (matches reference)
+  PIPE_CAP_WIDTH_FACTOR: 0.085, // pipe cap is wider than the column, * play-area width
+  PIPE_CAP_HEIGHT_FACTOR: 0.04, // pipe cap height, * play-area height
 
   // Loop / timing (Req 10)
   TARGET_FPS: 60, // Req 10.1

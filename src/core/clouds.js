@@ -25,6 +25,27 @@ function randomOpacity(rng, config) {
 }
 
 /**
+ * Generate a random rounded-cloud shape: a cluster of overlapping circular
+ * puffs. Positions/radii are expressed as fractions of the cloud's base size so
+ * the renderer can scale them to any play area. This is pure data computed in
+ * the core via the injected rng, keeping the renderer a plain draw. (Req 1.6)
+ *
+ * @returns {{ cx: number, cy: number, r: number }[]} puffs in [0,1]-ish space
+ */
+export function generateCloudShape(rng) {
+  const puffCount = 3 + Math.floor(rng() * 3); // 3..5 puffs
+  const puffs = [];
+  for (let i = 0; i < puffCount; i += 1) {
+    // Spread puff centers horizontally across the cloud, with gentle vertical jitter.
+    const cx = 0.15 + (i / Math.max(1, puffCount - 1)) * 0.7 + (rng() - 0.5) * 0.1;
+    const cy = 0.5 + (rng() - 0.5) * 0.3;
+    const r = 0.22 + rng() * 0.18; // radius as a fraction of cloud height
+    puffs.push({ cx, cy, r });
+  }
+  return puffs;
+}
+
+/**
  * Create a single cloud on the given layer. If `offRight` is true, it is placed
  * just past the right edge (used when recycling).
  * @returns {object} Cloud
@@ -39,6 +60,9 @@ export function generateCloud(dims, rng, config, layer, offRight = false) {
     layer,
     speedFactor: config.CLOUD_LAYER_FACTORS[layer],
     opacity: randomOpacity(rng, config),
+    // Nearer layers (higher index) render slightly larger for depth.
+    scale: 0.7 + rng() * 0.6 + layer * 0.15,
+    shape: generateCloudShape(rng),
   };
 }
 

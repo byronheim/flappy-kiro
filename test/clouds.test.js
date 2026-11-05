@@ -9,6 +9,7 @@ import {
   seedClouds,
   updateClouds,
   cloudLayerSpeed,
+  generateCloudShape,
 } from '../src/core/clouds.js';
 import { pipeSpeed } from '../src/core/pipes.js';
 
@@ -18,6 +19,29 @@ const dimsArb = fc.record({
   width: fc.integer({ min: 200, max: 1200 }),
   height: fc.integer({ min: 300, max: 1000 }),
 }).map((d) => ({ ...d, groundHeight: Math.round(d.height * CONFIG.GROUND_HEIGHT_FACTOR) }));
+
+test('generated clouds carry a rounded-puff shape and a positive scale', () => {
+  const dims = { width: 960, height: 540, groundHeight: 65 };
+  const cloud = generateCloud(dims, () => 0.5, CONFIG, 1, false);
+  assert.ok(Array.isArray(cloud.shape) && cloud.shape.length >= 3);
+  assert.ok(cloud.scale > 0);
+  for (const puff of cloud.shape) {
+    assert.ok(puff.r > 0);
+    assert.equal(typeof puff.cx, 'number');
+    assert.equal(typeof puff.cy, 'number');
+  }
+});
+
+test('cloud shapes vary with the rng (not all identical)', () => {
+  let seed = 0;
+  const rng = () => {
+    seed += 0.137;
+    return seed % 1;
+  };
+  const a = JSON.stringify(generateCloudShape(rng));
+  const b = JSON.stringify(generateCloudShape(rng));
+  assert.notEqual(a, b);
+});
 
 // Feature: flappy-kiro, Property 1: Cloud opacity stays semi-transparent
 test('Property 1: Cloud opacity stays semi-transparent', () => {

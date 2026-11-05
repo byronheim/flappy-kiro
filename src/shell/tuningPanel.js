@@ -4,10 +4,16 @@
 //
 // Design "Configuration and Tuning > Tuning panel behavior".
 
-// Freely-tunable fields and their allowed ranges (for labels).
+// Freely-tunable fields and their allowed ranges (for labels). Ranges mirror
+// RANGES in shell/config.js; config.js clamps authoritatively.
 const TUNABLE = [
   { key: 'GRAVITY', label: 'Gravity', min: 800, max: 2400, step: 10 },
   { key: 'FLAP_IMPULSE', label: 'Flap impulse', min: 300, max: 700, step: 10 },
+  { key: 'MAX_FALL_SPEED', label: 'Max fall speed', min: 600, max: 1800, step: 10 },
+  { key: 'PIPE_SPEED_FACTOR', label: 'Pipe speed', min: 0.1, max: 0.8, step: 0.01 },
+  { key: 'PIPE_SPACING_FACTOR', label: 'Pipe spacing', min: 0.3, max: 1.0, step: 0.01 },
+  { key: 'PIPE_GAP_GHOSTY_MULTIPLE', label: 'Gap size', min: 1.5, max: 4.0, step: 0.1 },
+  { key: 'PIPE_GAP_MARGIN_FACTOR', label: 'Gap margin', min: 0.05, max: 0.25, step: 0.01 },
   { key: 'GROUND_HEIGHT_FACTOR', label: 'Ground height', min: 0.05, max: 0.2, step: 0.01 },
   { key: 'GHOSTY_HEIGHT_FACTOR', label: 'Ghosty height', min: 0.05, max: 0.15, step: 0.01 },
   { key: 'CLOUD_MIN_SPEED', label: 'Cloud min speed', min: 1, max: 200, step: 1 },

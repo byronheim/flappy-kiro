@@ -163,6 +163,31 @@ Flappy Kiro is a retro, browser-based endless scroller game inspired by the clas
 3. WHILE the Game is in the Playing_State, THE Game SHALL advance Ghosty's position, Gravity, and Pipe_Pair scrolling using the elapsed time since the previous animation frame, so that the on-screen motion speed of Ghosty and Pipe_Pairs stays constant across frame intervals ranging from 16 milliseconds to 100 milliseconds.
 4. IF the browser tab or window hosting the Game becomes hidden during the Playing_State, THEN THE Game SHALL pause physics updates and SHALL resume them from the paused state when the tab or window becomes visible again, without advancing Ghosty or Pipe_Pairs by the hidden interval.
 
+### Requirement 14: Configurable Gameplay and Difficulty Modes
+
+**User Story:** As a player, I want to adjust the game's difficulty and tune its gameplay parameters, so that I can make the game easier or harder to suit my skill.
+
+_Note on prior requirements: the specific gameplay values fixed in Requirements 4 and 5 (Gravity, flap impulse, max fall speed, pipe scroll speed, pipe spacing, gap margin, and gap height multiple) are now the **default** values of configurable parameters rather than immutable constants. With no configuration applied, the Game behaves exactly as Requirements 1–10 specify; the criteria below add the ability to deliberately change them within bounded ranges. The frame-time clamp (Req 10.3), cloud opacity bounds (Req 1.7), and restart lockout (Req 9.6) remain fixed invariants and are not configurable._
+
+#### Acceptance Criteria
+
+1. THE Game SHALL provide three difficulty modes — Easy, Normal, and Hard — each defining a named set of gameplay parameters (at minimum: Gravity, flap impulse, max fall speed, Pipe_Pair scroll speed, Pipe_Pair spacing, and Pipe_Gap height).
+2. THE Normal difficulty SHALL use parameter values equal to the defaults specified in Requirements 4 and 5, so that Normal behaves exactly as the initial version.
+3. THE Easy difficulty SHALL be more forgiving than Hard across its parameters: wider Pipe_Gap, greater Pipe_Pair spacing, slower scroll speed, and gentler Gravity.
+4. WHEN the player selects a difficulty mode, THE Game SHALL apply that mode's parameters and SHALL start a fresh Ready_State so the new parameters take effect from the next session.
+5. THE Game SHALL allow gameplay parameters to be configured within bounded ranges, and THE Game SHALL clamp any configured value to its allowed range so that a configuration can never produce an invalid game state.
+6. WHILE no difficulty mode or configuration is explicitly selected, THE Game SHALL default to Normal difficulty with the Requirements 1–10 default values.
+7. THE Game SHALL keep the frame-time clamp, cloud opacity bounds, and restart lockout fixed and SHALL NOT allow them to be changed by player- or URL-supplied configuration.
+
+### Requirement 15: Play Area Aspect
+
+**User Story:** As a player, I want a wide view of the scene, so that a side-scroller gives me enough room to see approaching pipes.
+
+#### Acceptance Criteria
+
+1. THE Game SHALL present the Play_Area in a wide (landscape) aspect ratio suited to a horizontally scrolling game.
+2. WHERE the Play_Area dimensions change, THE Game SHALL resolve all size- and distance-related parameters relative to the Play_Area dimensions so that gameplay scales consistently with the view size.
+
 ## Future Enhancements
 
 _The requirements in this section are out of scope for the initial release and are not part of the initial version of Flappy Kiro. They are documented here as future enhancements and will be addressed in a later iteration._
