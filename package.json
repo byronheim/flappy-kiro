@@ -1,0 +1,12 @@
+{
+  "name": "flappy-kiro",
+  "version": "1.0.0",
+  "description": "Flappy Kiro - a dependency-free, browser-based endless scroller built with HTML5 Canvas and vanilla JavaScript ES modules.",
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "fast-check": "^3.23.1"
+  }
+}

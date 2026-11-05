@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Flappy Kiro</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #222;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: monospace;
+      }
+      #game {
+        image-rendering: pixelated;
+        background: #6ec6ff;
+        touch-action: none;
+      }
+      #tuning-toggle {
+        position: fixed;
+        bottom: 8px;
+        right: 8px;
+        z-index: 1000;
+        font-family: monospace;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Play_Area canvas. Sized to the game's internal resolution. -->
+    <canvas id="game" width="400" height="600"></canvas>
+    <!-- Dev-only tuning panel toggle (press backtick ` as well). -->
+    <button id="tuning-toggle" type="button">Toggle tuning panel</button>
+
+    <!-- No build step: load the ES module entry directly. -->
+    <script type="module" src="src/shell/main.js"></script>
+  </body>
+</html>
