@@ -17,11 +17,15 @@ export function cloudLayerSpeed(layer, dims, config) {
   return Math.max(config.CLOUD_MIN_SPEED, factor * pipeSpeed(dims, config));
 }
 
-/** @returns {number} opacity within [CLOUD_OPACITY_MIN, CLOUD_OPACITY_MAX]. */
+/**
+ * @returns {number} opacity within [CLOUD_OPACITY_MIN, CLOUD_OPACITY_MAX].
+ * Biased toward the upper half of the range so clouds read as bright white
+ * rather than translucent gray, while still satisfying Req 1.7.
+ */
 function randomOpacity(rng, config) {
   const lo = config.CLOUD_OPACITY_MIN;
   const hi = config.CLOUD_OPACITY_MAX;
-  return lo + rng() * (hi - lo);
+  return lo + (0.55 + rng() * 0.45) * (hi - lo);
 }
 
 /**
@@ -33,15 +37,34 @@ function randomOpacity(rng, config) {
  * @returns {{ cx: number, cy: number, r: number }[]} puffs in [0,1]-ish space
  */
 export function generateCloudShape(rng) {
-  const puffCount = 3 + Math.floor(rng() * 3); // 3..5 puffs
   const puffs = [];
-  for (let i = 0; i < puffCount; i += 1) {
-    // Spread puff centers horizontally across the cloud, with gentle vertical jitter.
-    const cx = 0.15 + (i / Math.max(1, puffCount - 1)) * 0.7 + (rng() - 0.5) * 0.1;
-    const cy = 0.5 + (rng() - 0.5) * 0.3;
-    const r = 0.22 + rng() * 0.18; // radius as a fraction of cloud height
+
+  // Organic cloud: start with a central base circle, then scatter satellite
+  // puffs with their centers placed near the base's perimeter at RANDOM ANGLES
+  // around the center. Radial placement gives variance in every direction, so
+  // the cloud looks round and lumpy instead of a horizontal line.
+  //
+  // Coordinates are fractions of the cloud's base box, with the center at
+  // (0.5, 0.5). A slight vertical squash keeps the underside flatter than the
+  // top, which reads more like a real cloud resting on the air.
+  const center = { x: 0.5, y: 0.5 };
+  const baseR = 0.26 + rng() * 0.06;
+  puffs.push({ cx: center.x, cy: center.y, r: baseR });
+
+  // Satellite puffs ringed around the base. Each sits at a random angle, with
+  // its center roughly on the base perimeter (distance ~= baseR), so it overlaps
+  // the base heavily and merges into one body.
+  const satellites = 5 + Math.floor(rng() * 3); // 5..7
+  const vSquash = 0.72; // compress vertical offsets -> wider than tall, rounded
+  for (let i = 0; i < satellites; i += 1) {
+    const angle = rng() * Math.PI * 2; // full 360deg scatter
+    const dist = baseR * (0.7 + rng() * 0.5); // near the perimeter, some in/out
+    const r = baseR * (0.5 + rng() * 0.45); // smaller than the base
+    const cx = center.x + Math.cos(angle) * dist;
+    const cy = center.y + Math.sin(angle) * dist * vSquash;
     puffs.push({ cx, cy, r });
   }
+
   return puffs;
 }
 

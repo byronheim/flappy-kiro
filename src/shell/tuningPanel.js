@@ -1,8 +1,15 @@
-// Shell (developer tooling): a hidden DOM overlay exposing the freely-tunable
-// config parameters. Never drawn on the Canvas and never advances/alters the
-// simulation on its own. Edits route through config.js (which clamps).
+// Shell (developer tooling + customization): a centered modal dialog over the
+// play area with tabs. Never drawn on the Canvas and never advances/alters the
+// simulation on its own. Settings edits route through config.js (which clamps).
+//
+// Tabs are the extensible home for customization:
+//   - Color:       Ghosty color selection (Req 11; live).
+//   - Environment: full scene palette / theme selection (Req 16; live).
+//   - Flair:       Ghosty flair selection (Req 12; scaffolded, wired later).
+//   - Settings:    the freely-tunable config parameters (live).
 //
 // Design "Configuration and Tuning > Tuning panel behavior".
+import { COLOR_PALETTE, ENVIRONMENTS, resolveAppearance } from '../core/theme.js';
 
 // Freely-tunable fields and their allowed ranges (for labels). Ranges mirror
 // RANGES in shell/config.js; config.js clamps authoritatively.
@@ -19,93 +26,305 @@ const TUNABLE = [
   { key: 'CLOUD_MIN_SPEED', label: 'Cloud min speed', min: 1, max: 200, step: 1 },
 ];
 
+// Tabs shown in the dialog. 'id' is used to show/hide the matching content.
+const TABS = [
+  { id: 'color', label: 'Color' },
+  { id: 'environment', label: 'Environment' },
+  { id: 'flair', label: 'Flair' },
+  { id: 'settings', label: 'Settings' },
+];
+const DEFAULT_TAB = 'color';
+
+/** Small helper: set inline styles from an object (works with the test stub). */
+function style(el, styles) {
+  for (const [k, v] of Object.entries(styles)) el.style[k] = v;
+}
+
 /**
  * @param {object} opts
  * @param {(raw: object) => object} opts.onChange  returns the clamped effective config
  * @param {object} opts.defaults  the default config (constants.js shape)
+ * @param {{ colorId?: string, environmentId?: string }} [opts.appearance]  current selection
+ * @param {(sel: { colorId: string, environmentId: string }) => void} [opts.onAppearanceChange]
+ *        called with the full selection whenever the player picks a color or environment
  * @param {Document} [opts.doc]   injectable for tests
  * @param {EventTarget} [opts.keyTarget]  injectable for tests (defaults to window)
- * @returns {{ toggle: () => void, destroy: () => void, isVisible: () => boolean }}
+ * @returns {{ toggle, destroy, isVisible, show, hide, selectTab, activeTab }}
  */
 export function createTuningPanel(opts) {
   const { onChange, defaults } = opts;
+  const onAppearanceChange = opts.onAppearanceChange || (() => {});
+  // Current selection, resolved to valid ids (defaults fill any gaps).
+  let appearance = resolveAppearance(opts.appearance);
   const doc = opts.doc || (typeof document !== 'undefined' ? document : undefined);
   const keyTarget = opts.keyTarget || (typeof window !== 'undefined' ? window : undefined);
   if (!doc) throw new Error('tuningPanel requires a document');
+  // Mount target: the positioned stage wrapper in the browser so the overlay
+  // centers over the play area; defaults to body (used by tests).
+  const mount = opts.mount || doc.body;
 
-  const live = {}; // accumulated raw live overrides
+  const live = {}; // accumulated raw live overrides (Settings tab)
   let visible = false;
+  let activeTab = DEFAULT_TAB;
 
-  const panel = doc.createElement('div');
-  panel.id = 'tuning-panel';
-  panel.style.display = 'none';
-  panel.style.position = 'fixed';
-  panel.style.top = '8px';
-  panel.style.right = '8px';
-  panel.style.zIndex = '1000';
-  panel.style.background = 'rgba(0,0,0,0.75)';
-  panel.style.color = '#fff';
-  panel.style.font = '12px monospace';
-  panel.style.padding = '8px';
+  // --- Overlay + centered card -------------------------------------------
+  const overlay = doc.createElement('div');
+  overlay.id = 'tuning-panel';
+  style(overlay, {
+    display: 'none',
+    position: 'absolute',
+    inset: '0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: '1100',
+    background: 'rgba(0,0,0,0.4)',
+  });
 
+  const card = doc.createElement('div');
+  style(card, {
+    background: 'rgba(255,255,255,0.97)',
+    color: '#243',
+    borderRadius: '12px',
+    boxShadow: '0 12px 36px rgba(0,0,0,0.4)',
+    width: '340px',
+    maxWidth: '86%',
+    fontFamily: 'sans-serif',
+    overflow: 'hidden',
+  });
+  overlay.appendChild(card);
+
+  // --- Header (title + close) --------------------------------------------
+  const header = doc.createElement('div');
+  style(header, {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: '12px 16px',
+    borderBottom: '1px solid #e5eae7',
+  });
+  const title = doc.createElement('h2');
+  title.textContent = 'Options';
+  style(title, { margin: '0', fontSize: '18px', color: '#2e7d22' });
+  const closeBtn = doc.createElement('button');
+  closeBtn.textContent = '\u2715'; // ✕
+  style(closeBtn, {
+    border: 'none', background: 'transparent', cursor: 'pointer',
+    fontSize: '16px', color: '#566', lineHeight: '1',
+  });
+  closeBtn.addEventListener('click', () => setVisible(false));
+  header.appendChild(title);
+  header.appendChild(closeBtn);
+  card.appendChild(header);
+
+  // --- Tab strip ----------------------------------------------------------
+  const tabStrip = doc.createElement('div');
+  style(tabStrip, { display: 'flex', gap: '4px', padding: '10px 16px 0' });
+  const tabButtons = new Map();
+  const tabPanels = new Map();
+
+  const selectTab = (id) => {
+    activeTab = id;
+    for (const [tid, btn] of tabButtons) {
+      const on = tid === id;
+      style(btn, {
+        background: on ? '#4caf3e' : '#f1f5f3',
+        color: on ? '#fff' : '#345',
+        fontWeight: on ? 'bold' : 'normal',
+        borderColor: on ? '#4caf3e' : '#cbd5d0',
+      });
+    }
+    for (const [tid, p] of tabPanels) {
+      style(p, { display: tid === id ? 'block' : 'none' });
+    }
+  };
+
+  for (const tab of TABS) {
+    const btn = doc.createElement('button');
+    btn.textContent = tab.label;
+    style(btn, {
+      cursor: 'pointer', fontSize: '13px', padding: '6px 14px',
+      border: '1px solid #cbd5d0', borderRadius: '6px 6px 0 0',
+      background: '#f1f5f3', color: '#345',
+    });
+    btn.addEventListener('click', () => selectTab(tab.id));
+    tabButtons.set(tab.id, btn);
+    tabStrip.appendChild(btn);
+  }
+  card.appendChild(tabStrip);
+
+  // --- Tab content container ---------------------------------------------
+  const body = doc.createElement('div');
+  style(body, { padding: '16px', maxHeight: '320px', overflowY: 'auto' });
+  card.appendChild(body);
+
+  const makePanel = (id) => {
+    const p = doc.createElement('div');
+    style(p, { display: 'none' });
+    tabPanels.set(id, p);
+    body.appendChild(p);
+    return p;
+  };
+
+  // --- Swatch grid helper: a row of selectable color/theme chips ----------
+  // `getSwatch(option) -> cssColor` picks the chip's display color; `onPick`
+  // receives the chosen option's id. Returns a function to refresh the active
+  // highlight when the selection changes elsewhere.
+  const makeSwatchGrid = (panel, options, getSwatch, isActive, onPick) => {
+    const grid = doc.createElement('div');
+    style(grid, { display: 'flex', flexWrap: 'wrap', gap: '8px', margin: '4px 0' });
+    const chips = [];
+    for (const option of options) {
+      const chip = doc.createElement('button');
+      chip.type = 'button';
+      chip.title = option.label;
+      // Tag the chip with its option id. Use setAttribute in the browser
+      // (element.dataset is a read-only accessor and cannot be reassigned);
+      // fall back to a plain property for the test DOM stub.
+      if (typeof chip.setAttribute === 'function') {
+        chip.setAttribute('aria-label', option.label);
+        chip.setAttribute('data-option-id', option.id);
+      } else {
+        chip.optionId = option.id;
+      }
+      style(chip, {
+        width: '44px', height: '44px', cursor: 'pointer', borderRadius: '8px',
+        background: getSwatch(option), padding: '0',
+      });
+      chip.addEventListener('click', () => onPick(option.id));
+      chips.push({ chip, option });
+      grid.appendChild(chip);
+    }
+    panel.appendChild(grid);
+    const refresh = () => {
+      for (const { chip, option } of chips) {
+        const on = isActive(option.id);
+        style(chip, {
+          border: on ? '3px solid #243' : '2px solid rgba(0,0,0,0.25)',
+          boxShadow: on ? '0 0 0 2px #fff inset' : 'none',
+        });
+      }
+    };
+    refresh();
+    return refresh;
+  };
+
+  // Color tab: Ghosty color palette (Req 11).
+  const colorPanel = makePanel('color');
+  const colorHint = doc.createElement('p');
+  colorHint.textContent = "Pick Ghosty's color.";
+  style(colorHint, { margin: '4px 0 10px', color: '#789', fontSize: '13px' });
+  colorPanel.appendChild(colorHint);
+  let refreshColors = () => {};
+  refreshColors = makeSwatchGrid(
+    colorPanel,
+    COLOR_PALETTE,
+    (opt) => opt.color,
+    (id) => id === appearance.colorId,
+    (id) => {
+      appearance = resolveAppearance({ ...appearance, colorId: id });
+      refreshColors();
+      onAppearanceChange({ colorId: appearance.colorId, environmentId: appearance.environmentId });
+    }
+  );
+
+  // Environment tab: full scene theme (Req 16). Each chip previews sky over
+  // pipe color so themes are recognizable at a glance.
+  const envPanel = makePanel('environment');
+  const envHint = doc.createElement('p');
+  envHint.textContent = 'Choose the scene.';
+  style(envHint, { margin: '4px 0 10px', color: '#789', fontSize: '13px' });
+  envPanel.appendChild(envHint);
+  let refreshEnvs = () => {};
+  refreshEnvs = makeSwatchGrid(
+    envPanel,
+    ENVIRONMENTS,
+    (opt) => `linear-gradient(${opt.sky} 0 60%, ${opt.pipe} 60% 100%)`,
+    (id) => id === appearance.environmentId,
+    (id) => {
+      appearance = resolveAppearance({ ...appearance, environmentId: id });
+      refreshEnvs();
+      onAppearanceChange({ colorId: appearance.colorId, environmentId: appearance.environmentId });
+    }
+  );
+
+  // Flair tab (scaffold for Req 12).
+  const flairPanel = makePanel('flair');
+  const flairHint = doc.createElement('p');
+  flairHint.textContent = 'Ghosty flair (hats, accessories) — coming soon.';
+  style(flairHint, { margin: '4px 0', color: '#789', fontSize: '13px' });
+  flairPanel.appendChild(flairHint);
+
+  // Settings tab (the live-tunable parameters).
+  const settingsPanel = makePanel('settings');
   const inputs = new Map();
-
   for (const field of TUNABLE) {
     const row = doc.createElement('div');
+    style(row, {
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      gap: '10px', margin: '6px 0', fontSize: '13px',
+    });
     const label = doc.createElement('label');
-    label.textContent = `${field.label} [${field.min}-${field.max}] `;
+    label.textContent = `${field.label} [${field.min}\u2013${field.max}]`;
+    style(label, { color: '#345' });
     const inputEl = doc.createElement('input');
     inputEl.type = 'number';
     inputEl.min = String(field.min);
     inputEl.max = String(field.max);
     inputEl.step = String(field.step);
     inputEl.value = String(defaults[field.key]);
+    style(inputEl, { width: '84px' });
 
     inputEl.addEventListener('change', () => {
       live[field.key] = Number(inputEl.value);
       const effective = onChange({ ...live });
-      // Reflect the clamped effective value so it can never escape its range.
-      inputEl.value = String(effective[field.key]);
+      inputEl.value = String(effective[field.key]); // reflect clamped value
     });
 
     inputs.set(field.key, inputEl);
     label.appendChild(inputEl);
     row.appendChild(label);
-    panel.appendChild(row);
+    settingsPanel.appendChild(row);
   }
 
   const resetBtn = doc.createElement('button');
   resetBtn.textContent = 'Reset to defaults';
+  style(resetBtn, {
+    marginTop: '10px', cursor: 'pointer', fontSize: '13px', padding: '6px 12px',
+    border: '1px solid #cbd5d0', borderRadius: '6px', background: '#f1f5f3', color: '#345',
+  });
   resetBtn.addEventListener('click', () => {
     for (const key of Object.keys(live)) delete live[key];
     const effective = onChange({});
     for (const [key, el] of inputs) el.value = String(effective[key]);
   });
-  panel.appendChild(resetBtn);
+  settingsPanel.appendChild(resetBtn);
 
-  if (doc.body) doc.body.appendChild(panel);
+  if (mount) mount.appendChild(overlay);
+  selectTab(activeTab);
 
-  const setVisible = (v) => {
+  // --- Visibility & keys --------------------------------------------------
+  function setVisible(v) {
     visible = v;
-    panel.style.display = v ? 'block' : 'none';
-  };
+    overlay.style.display = v ? 'flex' : 'none';
+  }
 
   const onKey = (event) => {
-    // Toggle on the backtick key.
     if (event.key === '`' || event.code === 'Backquote') setVisible(!visible);
+    else if (visible && (event.key === 'Escape' || event.code === 'Escape')) setVisible(false);
   };
   if (keyTarget && keyTarget.addEventListener) keyTarget.addEventListener('keydown', onKey);
 
   return {
-    toggle() {
-      setVisible(!visible);
-    },
-    isVisible() {
-      return visible;
-    },
+    toggle() { setVisible(!visible); },
+    show() { setVisible(true); },
+    hide() { setVisible(false); },
+    isVisible() { return visible; },
+    selectTab,
+    activeTab() { return activeTab; },
+    appearance() { return { colorId: appearance.colorId, environmentId: appearance.environmentId }; },
     destroy() {
       if (keyTarget && keyTarget.removeEventListener) keyTarget.removeEventListener('keydown', onKey);
-      if (panel.parentNode) panel.parentNode.removeChild(panel);
+      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
     },
   };
 }

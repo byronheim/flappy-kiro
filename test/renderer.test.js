@@ -3,9 +3,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { CONFIG } from '../src/core/constants.js';
-import { render } from '../src/shell/renderer.js';
+import { render, getTintedSprite } from '../src/shell/renderer.js';
 import { createWorld } from '../src/core/engine.js';
 import { States } from '../src/core/stateMachine.js';
+import { resolveEnvironment } from '../src/core/theme.js';
 
 const dims = { width: 400, height: 600, groundHeight: Math.round(600 * CONFIG.GROUND_HEIGHT_FACTOR) };
 
@@ -37,11 +38,18 @@ function recordingCtx() {
     drawImage(img, x, y, w, h) {
       calls.push({ op: 'drawImage', x, y, w, h });
     },
+    globalCompositeOperation: 'source-over',
     beginPath() {
       calls.push({ op: 'beginPath' });
     },
+    moveTo(x, y) {
+      calls.push({ op: 'moveTo', x, y });
+    },
     arc(x, y, r, start, end) {
       calls.push({ op: 'arc', x, y, r, start, end });
+    },
+    closePath() {
+      calls.push({ op: 'closePath' });
     },
     fill() {
       calls.push({ op: 'fill' });
@@ -147,4 +155,140 @@ test('only pipes partially within horizontal bounds are drawn (Req 10.2)', () =>
   assert.ok(greenRects.length >= 1);
   const offScreenRects = ctx.calls.filter((c) => c.op === 'fillRect' && c.x === -100);
   assert.equal(offScreenRects.length, 0);
+});
+
+// --- Environment theming (Req 16) --------------------------------------------
+
+test('default (no appearance) renders the original sky-blue background (Req 16.2)', () => {
+  const ctx = recordingCtx();
+  const world = createWorld(dims, 0, CONFIG, () => 0.5);
+  render(ctx, world, loadedAssets);
+  const sky = ctx.calls.find((c) => c.op === 'fillRect' && c.x === 0 && c.y === 0 && c.w === dims.width && c.h === dims.height);
+  assert.ok(sky);
+  assert.equal(sky.fillStyle, '#7ec4e6');
+});
+
+test('selecting an environment recolors sky, pipes and ground (Req 16.3)', () => {
+  const ctx = recordingCtx();
+  const world = {
+    ...createWorld(dims, 0, CONFIG, () => 0.5),
+    status: States.PLAYING,
+    pipes: [{ id: 0, x: 120, width: 40, gapTop: 100, gapBottom: 300, scored: false }],
+  };
+  const evil = resolveEnvironment('evilLair');
+  render(ctx, world, loadedAssets, CONFIG, { environmentId: 'evilLair' });
+
+  const sky = ctx.calls.find((c) => c.op === 'fillRect' && c.x === 0 && c.y === 0 && c.w === dims.width && c.h === dims.height);
+  assert.equal(sky.fillStyle, evil.sky);
+
+  // The pipe column uses the environment's pipe color.
+  const pipeRect = ctx.calls.find((c) => c.op === 'fillRect' && c.x === 120 && c.fillStyle === evil.pipe);
+  assert.ok(pipeRect, 'expected a pipe rect in the environment pipe color');
+
+  // The ground strip uses the environment's ground color.
+  const groundRect = ctx.calls.find(
+    (c) => c.op === 'fillRect' && c.y === Math.round(dims.height - dims.groundHeight) && c.fillStyle === evil.ground
+  );
+  assert.ok(groundRect, 'expected the ground in the environment ground color');
+});
+
+test('a non-default Ghosty color draws the sprite and never paints a colored box over the scene (Req 11.2)', () => {
+  const ctx = recordingCtx();
+  const world = { ...createWorld(dims, 0, CONFIG, () => 0.5), status: States.PLAYING };
+  render(ctx, world, loadedAssets, CONFIG, { colorId: 'red' });
+
+  const g = world.ghosty;
+  // Ghosty is drawn as an image (tint is applied offscreen, masked to the
+  // sprite's own alpha - never as a full-rectangle fill on the main canvas).
+  const sprite = ctx.calls.find(
+    (c) => c.op === 'drawImage' && c.x === Math.round(g.x) && c.y === Math.round(g.y) &&
+      c.w === Math.round(g.w) && c.h === Math.round(g.h)
+  );
+  assert.ok(sprite, 'expected Ghosty drawn as an image');
+
+  // Crucially: no fillRect spanning the whole sprite box (that was the bug - a
+  // tinted square around the avatar).
+  const box = ctx.calls.find(
+    (c) => c.op === 'fillRect' && c.x === Math.round(g.x) && c.y === Math.round(g.y) &&
+      c.w === Math.round(g.w) && c.h === Math.round(g.h)
+  );
+  assert.equal(box, undefined, 'must not paint a colored box over the sprite region');
+});
+
+test('the default ghost color draws the sprite untinted (Req 11.5)', () => {
+  const ctx = recordingCtx();
+  const world = { ...createWorld(dims, 0, CONFIG, () => 0.5), status: States.PLAYING };
+  render(ctx, world, loadedAssets, CONFIG, { colorId: 'ghost' });
+  const g = world.ghosty;
+  const sprite = ctx.calls.find(
+    (c) => c.op === 'drawImage' && c.x === Math.round(g.x) && c.y === Math.round(g.y)
+  );
+  assert.ok(sprite, 'expected the sprite drawn');
+  // No fill rect exactly over the sprite bounds.
+  const box = ctx.calls.find(
+    (c) => c.op === 'fillRect' && c.x === Math.round(g.x) && c.y === Math.round(g.y) &&
+      c.w === Math.round(g.w) && c.h === Math.round(g.h)
+  );
+  assert.equal(box, undefined);
+});
+
+test('placeholder (sprite failed) uses the chosen color when not ghost (Req 1.4, 11.2)', () => {
+  const ctx = recordingCtx();
+  const world = createWorld(dims, 0, CONFIG, () => 0.5);
+  render(ctx, world, failedAssets, CONFIG, { colorId: 'blue' });
+  const g = world.ghosty;
+  const placeholder = ctx.calls.find(
+    (c) => c.op === 'fillRect' && c.x === Math.round(g.x) && c.y === Math.round(g.y) &&
+      c.w === Math.round(g.w) && c.h === Math.round(g.h)
+  );
+  assert.ok(placeholder);
+  assert.equal(placeholder.fillStyle, '#4a90e2');
+});
+
+test('getTintedSprite tints on an isolated offscreen canvas using source-atop (Req 11.2)', () => {
+  // Fake an offscreen canvas whose 2D context records its operations, so we can
+  // assert the tint is masked to the sprite (source-atop) rather than painted
+  // as a full rectangle over an opaque scene.
+  const octx = {
+    ops: [],
+    imageSmoothingEnabled: true,
+    globalCompositeOperation: 'source-over',
+    globalAlpha: 1,
+    fillStyle: '#000',
+    drawImage(img, x, y, w, h) { this.ops.push({ op: 'drawImage', x, y, w, h }); },
+    fillRect(x, y, w, h) {
+      this.ops.push({ op: 'fillRect', x, y, w, h, gco: this.globalCompositeOperation, alpha: this.globalAlpha });
+    },
+  };
+  const fakeCanvas = { width: 0, height: 0, getContext: () => octx };
+  const prevDoc = globalThis.document;
+  globalThis.document = { createElement: (tag) => (tag === 'canvas' ? fakeCanvas : {}) };
+  try {
+    const sprite = { marker: 'sprite' };
+    const result = getTintedSprite(sprite, '#123456', 32, 32);
+    // Returns the offscreen canvas (not the raw sprite).
+    assert.equal(result, fakeCanvas);
+    assert.equal(fakeCanvas.width, 32);
+    assert.equal(fakeCanvas.height, 32);
+    // Sprite drawn first, then the color composited with source-atop.
+    assert.deepEqual(octx.ops[0], { op: 'drawImage', x: 0, y: 0, w: 32, h: 32 });
+    const fill = octx.ops.find((o) => o.op === 'fillRect');
+    assert.ok(fill);
+    assert.equal(fill.gco, 'source-atop');
+    assert.ok(fill.alpha > 0 && fill.alpha < 1); // partial so sprite shading reads
+  } finally {
+    globalThis.document = prevDoc;
+  }
+});
+
+test('getTintedSprite falls back to the sprite when no document is available', () => {
+  const prevDoc = globalThis.document;
+  // eslint-disable-next-line no-undef
+  delete globalThis.document;
+  try {
+    const sprite = { marker: 'sprite' };
+    assert.equal(getTintedSprite(sprite, '#654321', 32, 32), sprite);
+  } finally {
+    globalThis.document = prevDoc;
+  }
 });

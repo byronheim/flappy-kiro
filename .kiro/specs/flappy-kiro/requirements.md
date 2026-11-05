@@ -188,6 +188,19 @@ _Note on prior requirements: the specific gameplay values fixed in Requirements 
 1. THE Game SHALL present the Play_Area in a wide (landscape) aspect ratio suited to a horizontally scrolling game.
 2. WHERE the Play_Area dimensions change, THE Game SHALL resolve all size- and distance-related parameters relative to the Play_Area dimensions so that gameplay scales consistently with the view size.
 
+### Requirement 16: Environment Themes
+
+**User Story:** As a player, I want to choose the scene's environment, so that I can play against different backdrops such as a forest or an evil lair instead of only the default sky.
+
+#### Acceptance Criteria
+
+1. THE Game SHALL provide a fixed set of predefined selectable Environments, each defining a full scene palette (background, ground, pipe, pipe cap, cloud, and HUD colors).
+2. THE Game SHALL include a default Environment that reproduces the original sky-blue background with green pipes, so that selecting no Environment leaves the default look unchanged.
+3. WHEN the player selects an Environment, THE Game SHALL render the background, Ground, Pipe_Pairs, Clouds, and HUD using that Environment's palette.
+4. WHEN the player selects an Environment, THE Game SHALL persist the selected Environment to browser local storage.
+5. WHEN the Game loads, THE Game SHALL read the persisted Environment from browser local storage and apply it.
+6. IF no Environment is stored when the Game loads, OR the stored Environment is not a member of the predefined set, THEN THE Game SHALL apply the default Environment.
+
 ## Future Enhancements
 
 _The requirements in this section are out of scope for the initial release and are not part of the initial version of Flappy Kiro. They are documented here as future enhancements and will be addressed in a later iteration._

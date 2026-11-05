@@ -6,7 +6,8 @@
 import { createWorld } from '../core/engine.js';
 import { DEFAULT_DIFFICULTY } from '../core/difficulty.js';
 import { resolveConfig, withLiveOverrides } from './config.js';
-import { loadHighScore, saveHighScore } from './storage.js';
+import { loadHighScore, saveHighScore, loadAppearance, saveAppearance } from './storage.js';
+import { resolveAppearance } from '../core/theme.js';
 import { createInput } from './input.js';
 import { render } from './renderer.js';
 import { createAudio } from './audio.js';
@@ -61,22 +62,65 @@ async function main() {
   // High score from storage (Req 8.4).
   const highScore = loadHighScore(config);
 
+  // Appearance (Ghosty color + environment) from storage, resolved to valid
+  // ids with defaults applied (Req 11.4/11.5, 16).
+  let appearance = resolveAppearance(loadAppearance());
+
   // Build the world (Ready state) and reach Ready immediately (Req 2.1).
   let world = createWorld(dims, highScore, config);
 
-  const input = createInput(canvas);
+  const rawInput = createInput(canvas);
+
+  // Start-dialog controller. While the dialog is visible the game is held in
+  // Ready: real flaps (space/click) are swallowed so only "Flap Away!" starts
+  // play. "Flap Away!" queues a single synthetic flap to transition Ready->Playing.
+  const startDialog = document.getElementById('start-dialog');
+  let dialogVisible = true;
+  let queuedFlap = false;
+  const showDialog = () => {
+    dialogVisible = true;
+    if (startDialog) startDialog.hidden = false;
+  };
+  const hideDialog = () => {
+    dialogVisible = false;
+    if (startDialog) startDialog.hidden = true;
+  };
+
+  // Input wrapper: the loop drains from here each frame.
+  const input = {
+    drain() {
+      const intents = rawInput.drain();
+      if (dialogVisible) {
+        // Swallow real input while the dialog is up; the dialog owns the start.
+        return { ...intents, flap: false };
+      }
+      if (queuedFlap) {
+        queuedFlap = false;
+        return { ...intents, flap: true };
+      }
+      return intents;
+    },
+  };
 
   let liveOverrides = {};
 
-  // Mount the dev tuning panel; edits re-resolve config live.
+  // Mount the options dialog over the play area (inside the positioned stage).
+  const stage = document.getElementById('stage');
   const panel = createTuningPanel({
     defaults: config,
+    mount: stage || undefined,
+    appearance: { colorId: appearance.colorId, environmentId: appearance.environmentId },
     onChange: (raw) => {
       liveOverrides = raw;
       config = withLiveOverrides(raw, { difficulty });
       // Keep ground height in sync with any live factor change.
       world = { ...world, dims: { ...world.dims, groundHeight: Math.round(config.GROUND_HEIGHT_FACTOR * dims.height) } };
       return config;
+    },
+    // Color/environment picks apply live and persist (Req 11.2/11.3, 16).
+    onAppearanceChange: (sel) => {
+      appearance = resolveAppearance(sel);
+      saveAppearance({ colorId: appearance.colorId, environmentId: appearance.environmentId });
     },
   });
   const gearBtn = document.getElementById('gear-btn');
@@ -102,11 +146,29 @@ async function main() {
     });
   }
 
+  // "Flap Away!" closes the dialog and queues the first flap to start play.
+  const flapAwayBtn = document.getElementById('flap-away');
+  if (flapAwayBtn) {
+    flapAwayBtn.addEventListener('click', () => {
+      hideDialog();
+      queuedFlap = true;
+    });
+  }
+
+  // Watch state transitions so the dialog reappears whenever the game returns
+  // to the Ready state (e.g. after a crash + restart).
+  let prevStatus = world.status;
+  const setState = (w) => {
+    if (w.status === 'ready' && prevStatus !== 'ready') showDialog();
+    prevStatus = w.status;
+    world = w;
+  };
+
   startLoop({
     getState: () => world,
-    setState: (w) => { world = w; },
+    setState,
     input,
-    render: (w) => render(ctx, w, assets, config),
+    render: (w) => render(ctx, w, assets, config, appearance),
     audio,
     storage: { saveHighScore },
     getConfig: () => config,

@@ -678,7 +678,19 @@ The property semantics are unchanged by the tuning feature. Where a property ref
 
 *For all* GameOver-state worlds, a flap performed before 500 ms have elapsed leaves the status in GameOver; a flap performed at or after 500 ms transitions the status to Ready, removes all pipe pairs, and resets Ghosty to the starting position — in neither case is an upward impulse applied.
 
-**Validates: Requirements 9.6, 9.7, 9.8, 9.9, 9.10**
+**Validates: Requirements 9.6, 9.7, 9.8, 9.10**
+
+### Property 21: Appearance resolution always yields a valid, complete theme
+
+*For all* raw appearance selections (including unknown ids, missing fields, and non-string values), `resolveAppearance` returns a color that is a member of the Color_Palette and an environment that is a member of the Environments set; a valid id is preserved, and an invalid or missing id falls back to that set's default.
+
+**Validates: Requirements 11.5, 16**
+
+### Property 22: Appearance persistence round-trips valid selections
+
+*For all* valid { colorId, environmentId } pairs, saving the selection to storage and loading it back yields the same pair; any corrupt or non-JSON stored value loads as an empty selection that resolves to the defaults.
+
+**Validates: Requirements 11.3, 11.4, 11.5, 16**
 
 ---
 
@@ -747,11 +759,56 @@ Why some criteria are not property-tested: rendering appearance (1.1, 1.5), boot
 
 ---
 
+## Visual Customization (Req 11, 16) — implemented
+
+Ghosty color (Req 11) and Environment themes (Req 16) are implemented as a
+**presentation-only** concern, riding the existing core/shell seams without
+touching the simulation. They change how the world is drawn, never how it
+evolves, so physics, collision, and scoring stay color-blind and deterministic.
+
+- **Theme data (pure core):** `src/core/theme.js` holds `COLOR_PALETTE` (the
+  fixed Ghosty colors, first is the default) and `ENVIRONMENTS` (full scene
+  palettes — sky/ground/pipe/pipeCap/cloud/hud — with the first, `sky`,
+  reproducing the original look). `resolveAppearance(selection)` validates a raw
+  `{ colorId, environmentId }` and always returns a complete, valid theme,
+  falling back to defaults on unknown or missing ids (Req 11.5, 16.6). This
+  module is pure data + lookups: no DOM, storage, or randomness, so it is
+  directly unit- and property-tested in Node.
+- **Rendering (shell):** `renderer.js` takes an `appearance` argument, resolves
+  it through `theme.js`, and draws the sky, ground, pipes, pipe caps, clouds,
+  and HUD from the chosen environment. Ghosty is tinted toward the chosen color
+  by compositing the color over the sprite's opaque pixels (`source-atop`); the
+  default `ghost` color leaves the sprite untouched, and the fallback
+  placeholder uses the chosen color directly.
+- **Selection UI (shell):** `tuningPanel.js` exposes a **Color** tab (palette
+  swatches) and an **Environment** tab (theme-preview chips). Picks apply live
+  via an `onAppearanceChange` callback and highlight the active chip.
+- **Persistence (shell):** `storage.js` adds `loadAppearance`/`saveAppearance`,
+  storing `{ colorId, environmentId }` as JSON under `flappyKiro.appearance`,
+  guarded against corrupt values and I/O failures exactly like the high score
+  (Req 11.3/11.4, 16.4/16.5). Validation of the ids themselves is deferred to
+  `theme.resolveAppearance`.
+
+The `step()` contract is unchanged: this is pure data + rendering along the
+boundaries already defined above.
+
 ## Extension Points for Future Enhancements
 
-Requirements 11–13 are **out of scope** for this version and are not designed here. The architecture reserves these seams so they can be added without restructuring:
+Requirements 12–13 remain **out of scope** for this version and are not designed
+here. The architecture reserves these seams so they can be added without
+restructuring:
 
-- **Ghosty color & flair (Req 11, 12):** Ghosty is drawn through the renderer from an `assets`/appearance descriptor. A future `appearance` field on `World` (color id + per-slot flair ids) would flow into `renderer.js` only; the simulation core is unaffected. `storage.js` already centralizes localStorage access and validation, so adding color/flair keys follows the same validated load/save pattern as the high score.
-- **Best-distance ground marker (Req 13):** `World` already accumulates horizontal progress (`distanceSincePipe`); a future `distanceTraveled` accumulator and a persisted `bestDistance` (loaded/validated by `storage.js` like the high score) would drive a ground marker drawn by `renderer.js`. The marker scrolls with the ground at the existing pipe speed, so it reuses the current scroll math. The one-shot highlight is a render flag set in the core, mirroring the `scored` flag pattern already used for pipes.
+- **Ghosty flair (Req 12):** flair rides the same `appearance` seam now used for
+  color — a per-slot flair-id map validated in `theme.js`, drawn by
+  `renderer.js` over Ghosty, and persisted by `storage.js` in the same
+  `flappyKiro.appearance` blob. The simulation core is unaffected.
+- **Best-distance ground marker (Req 13):** `World` already accumulates
+  horizontal progress (`distanceSincePipe`); a future `distanceTraveled`
+  accumulator and a persisted `bestDistance` (loaded/validated by `storage.js`
+  like the high score) would drive a ground marker drawn by `renderer.js`. The
+  marker scrolls with the ground at the existing pipe speed, so it reuses the
+  current scroll math. The one-shot highlight is a render flag set in the core,
+  mirroring the `scored` flag pattern already used for pipes.
 
-None of these require changes to the core `step()` contract; they extend data and rendering along existing boundaries.
+None of these require changes to the core `step()` contract; they extend data
+and rendering along existing boundaries.

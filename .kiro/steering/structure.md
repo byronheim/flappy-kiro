@@ -39,6 +39,9 @@ No DOM, Canvas, storage, audio, `Date.now`, or direct `Math.random`. Functions o
 | `collision.js` | AABB overlap tests (Ghosty vs pipes/ground/ceiling). |
 | `scoring.js` | Detect gap pass, increment once per pipe. |
 | `stateMachine.js` | Ready ↔ Playing ↔ GameOver transitions. |
+| `clouds.js` | Generate/scroll/recycle parallax cloud shapes. |
+| `difficulty.js` | Difficulty presets resolved to full configs. |
+| `theme.js` | Color_Palette + Environment palettes and validation (presentation data). |
 | `engine.js` | Orchestrates the above into `step()`, produces effects. |
 
 ### I/O shell (impure, browser-only)

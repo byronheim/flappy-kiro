@@ -3,29 +3,83 @@
 //
 // Design "Rendering Approach".
 import { States } from '../core/stateMachine.js';
+import { resolveAppearance } from '../core/theme.js';
 
-const SKY = '#7ec4e6';
-const GROUND_COLOR = '#3a4652';
-const PIPE_COLOR = '#4caf3e';
-const PIPE_CAP_COLOR = '#2e7d22';
-const CLOUD_COLOR = '#ffffff';
 const PLACEHOLDER_COLOR = '#e0e0e0';
-const TEXT_COLOR = '#ffffff';
+
+// Cache of tinted sprite canvases, keyed by color+size, so the per-frame hot
+// path reuses one offscreen canvas per color instead of re-tinting every frame.
+const tintCache = new Map();
+
+/**
+ * Produce a sprite tinted to `color`, masked to the sprite's own alpha so the
+ * transparent area around Ghosty stays transparent (no colored box). The tint
+ * is applied on an offscreen canvas where only the sprite's pixels are opaque,
+ * so 'source-atop' affects just the sprite shape - unlike compositing straight
+ * onto the main canvas, where the whole scene behind is already opaque.
+ *
+ * Returns the sprite image itself if an offscreen canvas can't be created
+ * (e.g. a non-browser/test context), so rendering degrades gracefully.
+ *
+ * @param {CanvasImageSource} sprite
+ * @param {string} color  CSS color
+ * @param {number} w  target pixel width
+ * @param {number} h  target pixel height
+ * @returns {CanvasImageSource}
+ */
+export function getTintedSprite(sprite, color, w, h) {
+  const key = `${color}@${w}x${h}`;
+  const cached = tintCache.get(key);
+  if (cached && cached.sprite === sprite) return cached.canvas;
+
+  if (typeof document === 'undefined' || !document.createElement) return sprite;
+  let off;
+  try {
+    off = document.createElement('canvas');
+    off.width = w;
+    off.height = h;
+    const octx = off.getContext('2d');
+    if (!octx) return sprite;
+    octx.imageSmoothingEnabled = false;
+    // 1) Draw the sprite; only its opaque pixels become opaque on the offscreen.
+    octx.drawImage(sprite, 0, 0, w, h);
+    // 2) Composite the color over just those pixels. 'source-atop' keeps the
+    //    sprite's alpha mask; partial alpha preserves the sprite's shading.
+    octx.globalCompositeOperation = 'source-atop';
+    octx.globalAlpha = 0.55;
+    octx.fillStyle = color;
+    octx.fillRect(0, 0, w, h);
+  } catch {
+    return sprite; // any canvas failure: fall back to the untinted sprite
+  }
+  tintCache.set(key, { sprite, canvas: off });
+  return off;
+}
 
 /**
  * @param {CanvasRenderingContext2D} ctx
  * @param {object} world
  * @param {object} assets  { sprite?: CanvasImageSource, spriteLoaded: boolean }
  * @param {object} [config]  effective config (for pipe cap sizing); optional
+ * @param {{ colorId?: string, environmentId?: string }} [appearance]  player theme
  */
-export function render(ctx, world, assets, config = {}) {
+export function render(ctx, world, assets, config = {}, appearance = {}) {
   const { dims } = world;
   const groundTop = dims.height - dims.groundHeight;
+
+  // Resolve the player's chosen theme to concrete colors (Req 11, 16).
+  const { color: ghostyColor, environment: env } = resolveAppearance(appearance);
+  const SKY = env.sky;
+  const GROUND_COLOR = env.ground;
+  const PIPE_COLOR = env.pipe;
+  const PIPE_CAP_COLOR = env.pipeCap;
+  const CLOUD_COLOR = env.cloud;
+  const TEXT_COLOR = env.hud;
 
   // Crisp pixel edges for all subsequent draws (Req 1.5).
   ctx.imageSmoothingEnabled = false;
 
-  // 1) Sky-blue fill (Req 1.1).
+  // 1) Sky fill - color comes from the active environment (Req 1.1, 16).
   ctx.fillStyle = SKY;
   ctx.fillRect(0, 0, dims.width, dims.height);
 
@@ -35,20 +89,25 @@ export function render(ctx, world, assets, config = {}) {
   const baseH = dims.height * 0.08;
   for (const cloud of clouds) {
     const scale = cloud.scale || 1;
-    const h = baseH * scale;
-    const w = h * 2.2; // clouds are wider than tall
+    // Near-square box so the radial puff scatter (in shape space) keeps its
+    // round proportions; the shape itself squashes vertically for a cloud look.
+    const h = baseH * scale * 2.0;
+    const w = h * 1.15;
     ctx.save();
     ctx.globalAlpha = cloud.opacity;
     ctx.fillStyle = CLOUD_COLOR;
     const puffs = cloud.shape || [{ cx: 0.5, cy: 0.5, r: 0.4 }];
+    // Build all puffs as ONE path and fill once, so overlapping circles merge
+    // into a single cohesive silhouette instead of stacking translucent seams.
+    ctx.beginPath();
     for (const puff of puffs) {
       const px = cloud.x + puff.cx * w;
       const py = cloud.y + puff.cy * h;
       const pr = puff.r * h;
-      ctx.beginPath();
+      ctx.moveTo(px + pr, py); // moveTo before arc so sub-paths don't connect
       ctx.arc(px, py, pr, 0, Math.PI * 2);
-      ctx.fill();
     }
+    ctx.fill();
     ctx.restore();
   }
 
@@ -82,13 +141,24 @@ export function render(ctx, world, assets, config = {}) {
   ctx.fillStyle = GROUND_COLOR;
   ctx.fillRect(0, Math.round(groundTop), dims.width, Math.round(dims.groundHeight));
 
-  // 5) Ghosty: sprite if loaded, else a solid placeholder of equal bounds (Req 1.3, 1.4).
+  // 5) Ghosty: sprite if loaded, else a solid placeholder of equal bounds
+  // (Req 1.3, 1.4). The chosen palette color tints the sprite (Req 11.2): the
+  // default 'ghost' color leaves the sprite as-is; any other color tints only
+  // the sprite's own pixels (not the transparent box around it) via an
+  // offscreen canvas - see getTintedSprite.
   const g = world.ghosty;
+  const gx = Math.round(g.x);
+  const gy = Math.round(g.y);
+  const gw = Math.round(g.w);
+  const gh = Math.round(g.h);
+  const tint = ghostyColor.id !== 'ghost' ? ghostyColor.color : null;
   if (assets && assets.spriteLoaded && assets.sprite) {
-    ctx.drawImage(assets.sprite, Math.round(g.x), Math.round(g.y), Math.round(g.w), Math.round(g.h));
+    const image = tint ? getTintedSprite(assets.sprite, tint, gw, gh) : assets.sprite;
+    ctx.drawImage(image, gx, gy, gw, gh);
   } else {
-    ctx.fillStyle = PLACEHOLDER_COLOR;
-    ctx.fillRect(Math.round(g.x), Math.round(g.y), Math.round(g.w), Math.round(g.h));
+    // Placeholder: fill directly with the chosen color (or neutral for ghost).
+    ctx.fillStyle = tint || PLACEHOLDER_COLOR;
+    ctx.fillRect(gx, gy, gw, gh);
   }
 
   // 6) HUD: current score and high score as integers, centered in the ground

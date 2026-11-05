@@ -15,8 +15,8 @@
         justify-content: center;
         font-family: sans-serif;
       }
-      /* Stage wraps the canvas so controls can be positioned over the
-         in-game "ground" footer. Its size tracks the canvas. */
+      /* Stage wraps the canvas so overlays (start dialog, options dialog)
+         can be positioned over it. Its size tracks the canvas. */
       #stage {
         position: relative;
         line-height: 0;
@@ -27,36 +27,66 @@
         touch-action: none;
         display: block;
       }
-      /* Controls live inside the ground strip (bottom ~8% of the canvas),
-         right-justified. */
-      #controls {
+      /* Start dialog overlay: pick difficulty, then Flap Away to play. */
+      #start-dialog {
         position: absolute;
-        right: 10px;
-        bottom: 0;
-        height: 43px; /* matches GROUND_HEIGHT_FACTOR (0.08) * 540 */
+        inset: 0;
         display: flex;
         align-items: center;
-        gap: 6px;
-        z-index: 1000;
+        justify-content: center;
+        z-index: 900;
+        background: rgba(0, 0, 0, 0.35);
         line-height: normal;
+      }
+      #start-dialog[hidden] {
+        display: none;
+      }
+      #start-card {
+        position: relative;
+        background: rgba(255, 255, 255, 0.96);
+        color: #243;
+        border-radius: 12px;
+        padding: 24px 28px;
+        text-align: center;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+        min-width: 260px;
+      }
+      #start-card h1 {
+        margin: 0 0 4px;
+        font-size: 26px;
+        color: #2e7d22;
+      }
+      #start-card p {
+        margin: 0 0 16px;
+        font-size: 13px;
+        color: #566;
+      }
+      #start-card .label {
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: #789;
+        margin-bottom: 8px;
       }
       #difficulty-bar {
         display: flex;
-        gap: 4px;
+        gap: 6px;
         align-items: center;
+        justify-content: center;
+        margin-bottom: 20px;
       }
       .diff-btn {
         font-family: sans-serif;
-        font-size: 12px;
+        font-size: 13px;
         cursor: pointer;
-        border: 1px solid rgba(255, 255, 255, 0.35);
-        background: rgba(255, 255, 255, 0.12);
-        color: #fff;
-        border-radius: 4px;
-        padding: 3px 8px;
+        border: 1px solid #cbd5d0;
+        background: #f1f5f3;
+        color: #345;
+        border-radius: 6px;
+        padding: 6px 14px;
       }
       .diff-btn:hover {
-        background: rgba(255, 255, 255, 0.22);
+        background: #e4ebe7;
       }
       .diff-btn.active {
         background: #4caf3e;
@@ -64,26 +94,44 @@
         color: #fff;
         font-weight: bold;
       }
-      /* Gear icon button to open the configuration (tuning) panel. */
+      #flap-away {
+        font-family: sans-serif;
+        font-size: 16px;
+        font-weight: bold;
+        cursor: pointer;
+        border: none;
+        background: #4caf3e;
+        color: #fff;
+        border-radius: 8px;
+        padding: 10px 24px;
+      }
+      #flap-away:hover {
+        background: #43a037;
+      }
+      /* Gear icon button to open the Options dialog. Sits in the top-right
+         corner of the start card, so options are only reachable before play. */
       #gear-btn {
-        width: 26px;
-        height: 26px;
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        width: 30px;
+        height: 30px;
         padding: 0;
         display: inline-flex;
         align-items: center;
         justify-content: center;
         cursor: pointer;
-        border: 1px solid rgba(255, 255, 255, 0.35);
-        background: rgba(255, 255, 255, 0.12);
-        border-radius: 4px;
-        color: #fff;
+        border: 1px solid #cbd5d0;
+        background: #f1f5f3;
+        border-radius: 6px;
+        color: #566;
       }
       #gear-btn:hover {
-        background: rgba(255, 255, 255, 0.22);
+        background: #e4ebe7;
       }
       #gear-btn svg {
-        width: 16px;
-        height: 16px;
+        width: 18px;
+        height: 18px;
         display: block;
       }
     </style>
@@ -93,22 +141,29 @@
       <!-- Play_Area canvas. Wider aspect for a side-scroller. -->
       <canvas id="game" width="960" height="540"></canvas>
 
-      <!-- Controls overlaid on the in-game ground footer, right-justified. -->
-      <div id="controls">
-        <div id="difficulty-bar">
-          <button type="button" class="diff-btn" data-difficulty="easy">Easy</button>
-          <button type="button" class="diff-btn active" data-difficulty="normal">Normal</button>
-          <button type="button" class="diff-btn" data-difficulty="hard">Hard</button>
+      <!-- Start dialog: choose difficulty, open options, then Flap Away. -->
+      <div id="start-dialog">
+        <div id="start-card">
+          <!-- Gear icon (top-right of the card) opens the Options dialog.
+               Options are only reachable here, before play begins. -->
+          <button id="gear-btn" type="button" title="Options" aria-label="Options">
+            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path
+                d="M19.14 12.94a7.49 7.49 0 0 0 .05-.94 7.49 7.49 0 0 0-.05-.94l2.03-1.58a.5.5 0 0 0 .12-.61l-1.92-3.32a.5.5 0 0 0-.59-.22l-2.39.96a7.03 7.03 0 0 0-1.62-.94l-.36-2.54A.5.5 0 0 0 13.96 2h-3.84a.5.5 0 0 0-.49.42l-.36 2.54c-.59.24-1.13.56-1.62.94l-2.39-.96a.5.5 0 0 0-.59.22L2.75 8.48a.5.5 0 0 0 .12.61l2.03 1.58c-.03.31-.05.63-.05.94 0 .31.02.63.05.94l-2.03 1.58a.5.5 0 0 0-.12.61l1.92 3.32c.13.23.42.31.65.22l2.39-.96c.49.38 1.03.7 1.62.94l.36 2.54c.04.24.25.42.49.42h3.84c.25 0 .45-.18.49-.42l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.23.09.52.01.65-.22l1.92-3.32a.5.5 0 0 0-.12-.61l-2.03-1.58ZM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7Z"
+                fill="currentColor"
+              />
+            </svg>
+          </button>
+          <h1>Flappy Kiro</h1>
+          <p>Guide Ghosty through the pipes.</p>
+          <div class="label">Difficulty</div>
+          <div id="difficulty-bar">
+            <button type="button" class="diff-btn" data-difficulty="easy">Easy</button>
+            <button type="button" class="diff-btn active" data-difficulty="normal">Normal</button>
+            <button type="button" class="diff-btn" data-difficulty="hard">Hard</button>
+          </div>
+          <button id="flap-away" type="button">Flap Away!</button>
         </div>
-        <!-- Gear icon opens the configuration panel (backtick ` also toggles). -->
-        <button id="gear-btn" type="button" title="Configuration" aria-label="Configuration">
-          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path
-              d="M19.14 12.94a7.49 7.49 0 0 0 .05-.94 7.49 7.49 0 0 0-.05-.94l2.03-1.58a.5.5 0 0 0 .12-.61l-1.92-3.32a.5.5 0 0 0-.59-.22l-2.39.96a7.03 7.03 0 0 0-1.62-.94l-.36-2.54A.5.5 0 0 0 13.96 2h-3.84a.5.5 0 0 0-.49.42l-.36 2.54c-.59.24-1.13.56-1.62.94l-2.39-.96a.5.5 0 0 0-.59.22L2.75 8.48a.5.5 0 0 0 .12.61l2.03 1.58c-.03.31-.05.63-.05.94 0 .31.02.63.05.94l-2.03 1.58a.5.5 0 0 0-.12.61l1.92 3.32c.13.23.42.31.65.22l2.39-.96c.49.38 1.03.7 1.62.94l.36 2.54c.04.24.25.42.49.42h3.84c.25 0 .45-.18.49-.42l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.23.09.52.01.65-.22l1.92-3.32a.5.5 0 0 0-.12-.61l-2.03-1.58ZM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7Z"
-              fill="currentColor"
-            />
-          </svg>
-        </button>
       </div>
     </div>
 
