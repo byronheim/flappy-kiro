@@ -9,7 +9,13 @@
 //   - Settings:    the freely-tunable config parameters (live).
 //
 // Design "Configuration and Tuning > Tuning panel behavior".
-import { COLOR_PALETTE, ENVIRONMENTS, resolveAppearance } from '../core/theme.js';
+import {
+  COLOR_PALETTE,
+  ENVIRONMENTS,
+  FLAIR_SLOTS,
+  flairForSlot,
+  resolveAppearance,
+} from '../core/theme.js';
 
 // Freely-tunable fields and their allowed ranges (for labels). Ranges mirror
 // RANGES in shell/config.js; config.js clamps authoritatively.
@@ -19,10 +25,10 @@ const TUNABLE = [
   { key: 'MAX_FALL_SPEED', label: 'Max fall speed', min: 600, max: 1800, step: 10 },
   { key: 'PIPE_SPEED_FACTOR', label: 'Pipe speed', min: 0.1, max: 0.8, step: 0.01 },
   { key: 'PIPE_SPACING_FACTOR', label: 'Pipe spacing', min: 0.3, max: 1.0, step: 0.01 },
-  { key: 'PIPE_GAP_GHOSTY_MULTIPLE', label: 'Gap size', min: 1.5, max: 4.0, step: 0.1 },
-  { key: 'PIPE_GAP_MARGIN_FACTOR', label: 'Gap margin', min: 0.05, max: 0.25, step: 0.01 },
-  { key: 'GROUND_HEIGHT_FACTOR', label: 'Ground height', min: 0.05, max: 0.2, step: 0.01 },
-  { key: 'GHOSTY_HEIGHT_FACTOR', label: 'Ghosty height', min: 0.05, max: 0.15, step: 0.01 },
+  { key: 'PIPE_GAP_GHOSTY_MULTIPLE', label: 'Gap size', min: 1.5, max: 3.5, step: 0.1 },
+  { key: 'PIPE_GAP_MARGIN_FACTOR', label: 'Gap margin', min: 0.05, max: 0.15, step: 0.01 },
+  { key: 'GROUND_HEIGHT_FACTOR', label: 'Ground height', min: 0.05, max: 0.18, step: 0.01 },
+  { key: 'GHOSTY_HEIGHT_FACTOR', label: 'Ghosty height', min: 0.05, max: 0.12, step: 0.01 },
   { key: 'CLOUD_MIN_SPEED', label: 'Cloud min speed', min: 1, max: 200, step: 1 },
 ];
 
@@ -56,6 +62,16 @@ export function createTuningPanel(opts) {
   const onAppearanceChange = opts.onAppearanceChange || (() => {});
   // Current selection, resolved to valid ids (defaults fill any gaps).
   let appearance = resolveAppearance(opts.appearance);
+  // The raw selection (ids + flair) behind the current resolved appearance, so
+  // re-resolving after a single-field change preserves the other fields.
+  const appearanceSelection = () => ({
+    colorId: appearance.colorId,
+    environmentId: appearance.environmentId,
+    flair: { ...appearance.flairIds },
+  });
+  // Emit the full current appearance (color + environment + flair ids) so a
+  // change on any one tab preserves the others.
+  const emitAppearance = () => onAppearanceChange(appearanceSelection());
   const doc = opts.doc || (typeof document !== 'undefined' ? document : undefined);
   const keyTarget = opts.keyTarget || (typeof window !== 'undefined' ? window : undefined);
   if (!doc) throw new Error('tuningPanel requires a document');
@@ -221,9 +237,9 @@ export function createTuningPanel(opts) {
     (opt) => opt.color,
     (id) => id === appearance.colorId,
     (id) => {
-      appearance = resolveAppearance({ ...appearance, colorId: id });
+      appearance = resolveAppearance({ ...appearanceSelection(), colorId: id });
       refreshColors();
-      onAppearanceChange({ colorId: appearance.colorId, environmentId: appearance.environmentId });
+      emitAppearance();
     }
   );
 
@@ -241,49 +257,151 @@ export function createTuningPanel(opts) {
     (opt) => `linear-gradient(${opt.sky} 0 60%, ${opt.pipe} 60% 100%)`,
     (id) => id === appearance.environmentId,
     (id) => {
-      appearance = resolveAppearance({ ...appearance, environmentId: id });
+      appearance = resolveAppearance({ ...appearanceSelection(), environmentId: id });
       refreshEnvs();
-      onAppearanceChange({ colorId: appearance.colorId, environmentId: appearance.environmentId });
+      emitAppearance();
     }
   );
 
-  // Flair tab (scaffold for Req 12).
+  // Flair tab: one picker per slot (hat, neck). Each row offers "None" plus the
+  // items in that slot; at most one item per slot (Req 12.2, 12.3, 12.8).
   const flairPanel = makePanel('flair');
   const flairHint = doc.createElement('p');
-  flairHint.textContent = 'Ghosty flair (hats, accessories) — coming soon.';
-  style(flairHint, { margin: '4px 0', color: '#789', fontSize: '13px' });
+  flairHint.textContent = 'Dress up Ghosty. One item per slot.';
+  style(flairHint, { margin: '4px 0 16px', color: '#789', fontSize: '13px' });
   flairPanel.appendChild(flairHint);
 
-  // Settings tab (the live-tunable parameters).
+  const SLOT_LABELS = { hat: 'Hat', neck: 'Neck' };
+  const flairRefreshers = [];
+  FLAIR_SLOTS.forEach((slot, slotIndex) => {
+    const slotLabel = doc.createElement('div');
+    slotLabel.textContent = SLOT_LABELS[slot] || slot;
+    style(slotLabel, {
+      fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.06em',
+      color: '#789', fontWeight: 'bold',
+      // Extra top space to separate this slot's label from the previous row
+      // (the hint already provides spacing above the first slot).
+      margin: `${slotIndex === 0 ? 0 : 18}px 0 8px`,
+    });
+    flairPanel.appendChild(slotLabel);
+
+    const row = doc.createElement('div');
+    style(row, { display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '2px' });
+    // "None" + the slot's items. `id: null` clears the slot.
+    const options = [{ id: null, label: 'None' }, ...flairForSlot(slot)];
+    const buttons = [];
+    for (const option of options) {
+      const btn = doc.createElement('button');
+      btn.type = 'button';
+      btn.textContent = option.label;
+      if (typeof btn.setAttribute === 'function') {
+        btn.setAttribute('data-flair-slot', slot);
+        btn.setAttribute('data-flair-id', option.id == null ? '' : option.id);
+      } else {
+        btn.flairSlot = slot;
+        btn.flairId = option.id;
+      }
+      style(btn, {
+        cursor: 'pointer', fontSize: '12px', padding: '6px 10px',
+        border: '1px solid #cbd5d0', borderRadius: '6px', background: '#f1f5f3', color: '#345',
+      });
+      btn.addEventListener('click', () => {
+        appearance = resolveAppearance({
+          ...appearanceSelection(),
+          flair: { ...appearance.flairIds, [slot]: option.id },
+        });
+        for (const fr of flairRefreshers) fr();
+        emitAppearance();
+      });
+      buttons.push({ btn, option });
+      row.appendChild(btn);
+    }
+    flairPanel.appendChild(row);
+
+    const refresh = () => {
+      for (const { btn, option } of buttons) {
+        const on = (appearance.flairIds[slot] || null) === option.id;
+        style(btn, {
+          background: on ? '#4caf3e' : '#f1f5f3',
+          color: on ? '#fff' : '#345',
+          fontWeight: on ? 'bold' : 'normal',
+          borderColor: on ? '#4caf3e' : '#cbd5d0',
+        });
+      }
+    };
+    refresh();
+    flairRefreshers.push(refresh);
+  });
+
+  // Settings tab (the live-tunable parameters). Each field is a slider: a top
+  // line shows the label on the left and the live value on the right (a bare
+  // slider hides its number), then the slider with its min/max as small, light
+  // endpoint captions. The readout updates while dragging; the clamped value is
+  // reflected when the drag settles.
   const settingsPanel = makePanel('settings');
   const inputs = new Map();
+  const valueReadouts = new Map();
   for (const field of TUNABLE) {
-    const row = doc.createElement('div');
-    style(row, {
-      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-      gap: '10px', margin: '6px 0', fontSize: '13px',
+    const block = doc.createElement('div');
+    style(block, { margin: '12px 0' });
+
+    // Top line: label (left) + live value (right).
+    const head = doc.createElement('div');
+    style(head, {
+      display: 'flex', alignItems: 'baseline', justifyContent: 'space-between',
+      fontSize: '13px',
     });
     const label = doc.createElement('label');
-    label.textContent = `${field.label} [${field.min}\u2013${field.max}]`;
+    label.textContent = field.label;
     style(label, { color: '#345' });
+    const valueEl = doc.createElement('span');
+    valueEl.textContent = String(defaults[field.key]);
+    style(valueEl, { color: '#2e7d22', fontWeight: 'bold', fontVariantNumeric: 'tabular-nums' });
+    head.appendChild(label);
+    head.appendChild(valueEl);
+
+    // Slider line: min caption, range slider, max caption.
+    const sliderRow = doc.createElement('div');
+    style(sliderRow, { display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' });
+    const minCap = doc.createElement('span');
+    minCap.textContent = String(field.min);
+    const maxCap = doc.createElement('span');
+    maxCap.textContent = String(field.max);
+    for (const cap of [minCap, maxCap]) {
+      style(cap, { fontSize: '10px', color: '#9aa7a0', flex: '0 0 auto' });
+    }
+
     const inputEl = doc.createElement('input');
-    inputEl.type = 'number';
+    inputEl.type = 'range';
     inputEl.min = String(field.min);
     inputEl.max = String(field.max);
     inputEl.step = String(field.step);
     inputEl.value = String(defaults[field.key]);
-    style(inputEl, { width: '84px' });
+    style(inputEl, { flex: '1 1 auto', cursor: 'pointer', accentColor: '#4caf3e' });
+    if (typeof inputEl.setAttribute === 'function') {
+      inputEl.setAttribute('aria-label', `${field.label} (${field.min} to ${field.max})`);
+    }
 
+    // Live readout while dragging (no clamping needed: the slider is bounded).
+    inputEl.addEventListener('input', () => {
+      valueEl.textContent = inputEl.value;
+    });
+    // On settle, route through config.js and reflect the clamped value.
     inputEl.addEventListener('change', () => {
       live[field.key] = Number(inputEl.value);
       const effective = onChange({ ...live });
-      inputEl.value = String(effective[field.key]); // reflect clamped value
+      inputEl.value = String(effective[field.key]);
+      valueEl.textContent = String(effective[field.key]);
     });
 
     inputs.set(field.key, inputEl);
-    label.appendChild(inputEl);
-    row.appendChild(label);
-    settingsPanel.appendChild(row);
+    valueReadouts.set(field.key, valueEl);
+    sliderRow.appendChild(minCap);
+    sliderRow.appendChild(inputEl);
+    sliderRow.appendChild(maxCap);
+    block.appendChild(head);
+    block.appendChild(sliderRow);
+    settingsPanel.appendChild(block);
   }
 
   const resetBtn = doc.createElement('button');
@@ -296,6 +414,7 @@ export function createTuningPanel(opts) {
     for (const key of Object.keys(live)) delete live[key];
     const effective = onChange({});
     for (const [key, el] of inputs) el.value = String(effective[key]);
+    for (const [key, el] of valueReadouts) el.textContent = String(effective[key]);
   });
   settingsPanel.appendChild(resetBtn);
 
@@ -321,7 +440,13 @@ export function createTuningPanel(opts) {
     isVisible() { return visible; },
     selectTab,
     activeTab() { return activeTab; },
-    appearance() { return { colorId: appearance.colorId, environmentId: appearance.environmentId }; },
+    appearance() {
+      return {
+        colorId: appearance.colorId,
+        environmentId: appearance.environmentId,
+        flair: { ...appearance.flairIds },
+      };
+    },
     destroy() {
       if (keyTarget && keyTarget.removeEventListener) keyTarget.removeEventListener('keydown', onKey);
       if (overlay.parentNode) overlay.parentNode.removeChild(overlay);

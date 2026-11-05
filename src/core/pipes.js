@@ -27,9 +27,26 @@ export function pipeSpeed(dims, config) {
  * @returns {object} PipePair
  */
 export function generatePipe(dims, rng, leftEdgeX, config, ghostyHeight, id) {
-  const gapHeight = config.PIPE_GAP_GHOSTY_MULTIPLE * ghostyHeight; // Req 5.4
-  const margin = config.PIPE_GAP_MARGIN_FACTOR * dims.height; // Req 5.3
   const groundTop = dims.height - dims.groundHeight;
+
+  // Requested gap height and margins (Req 5.3, 5.4). The tunable ranges keep
+  // the stacked worst case comfortably within the play area, but we still clamp
+  // defensively so no config combination can ever produce an unplayable gap
+  // (one that collapses to zero span or overflows the ground). The core must
+  // never emit a pipe whose gap extends below groundTop.
+  let gapHeight = config.PIPE_GAP_GHOSTY_MULTIPLE * ghostyHeight; // Req 5.4
+  let margin = config.PIPE_GAP_MARGIN_FACTOR * dims.height; // Req 5.3
+
+  // Guarantee room for the gap plus both margins plus a small placement span.
+  // If the requested geometry would not fit, first shrink the margin, then the
+  // gap itself, so gapBottom always stays at or above groundTop.
+  const MIN_SPAN = Math.min(40, groundTop * 0.05); // desired vertical variety
+  // Largest margin that still leaves the gap + a minimal span to fit.
+  const maxMarginForGap = (groundTop - gapHeight - MIN_SPAN) / 2;
+  if (margin > maxMarginForGap) margin = Math.max(0, maxMarginForGap);
+  // If even a zero-margin placement can't fit the gap, shrink the gap.
+  const maxGap = groundTop - 2 * margin - MIN_SPAN;
+  if (gapHeight > maxGap) gapHeight = Math.max(ghostyHeight, maxGap);
 
   // The gap top may range from `margin` down to `groundTop - margin - gapHeight`.
   const minGapTop = margin;

@@ -9,11 +9,17 @@ import {
   ENVIRONMENTS,
   DEFAULT_COLOR_ID,
   DEFAULT_ENVIRONMENT_ID,
+  FLAIR_SLOTS,
+  FLAIR_ITEMS,
   resolveColor,
   resolveEnvironment,
   resolveAppearance,
+  resolveFlair,
+  resolveFlairSelection,
+  flairForSlot,
   isColorId,
   isEnvironmentId,
+  isFlairId,
 } from '../src/core/theme.js';
 
 const RUNS = { numRuns: 100 };
@@ -95,4 +101,84 @@ test('every environment defines all palette slots as strings (Req 16.1)', () => 
 test('color ids are unique and environment ids are unique', () => {
   assert.equal(new Set(colorIds).size, colorIds.length);
   assert.equal(new Set(envIds).size, envIds.length);
+});
+
+// --- Flair (Req 12) ----------------------------------------------------------
+
+const flairIds = FLAIR_ITEMS.map((f) => f.id);
+
+// Feature: flappy-kiro, Property 25: Flair resolution respects slots and validates membership
+test('Property 25: Flair resolution respects slots and validates membership', () => {
+  const idArb = fc.oneof(
+    fc.constantFrom(...flairIds),
+    fc.string(),
+    fc.constant(undefined),
+    fc.integer(),
+  );
+  // Build a raw selection keyed by arbitrary slot names (valid and invalid).
+  const slotArb = fc.constantFrom(...FLAIR_SLOTS, 'bogusSlot');
+  fc.assert(
+    fc.property(fc.dictionary(slotArb, idArb), (selection) => {
+      const resolved = resolveFlairSelection(selection);
+      // Every known slot is present; no extra slots leak in.
+      assert.deepEqual(Object.keys(resolved).sort(), [...FLAIR_SLOTS].sort());
+      for (const slot of FLAIR_SLOTS) {
+        const item = resolved[slot];
+        if (item !== null) {
+          // A returned item is a real item and belongs to the slot it is under.
+          assert.ok(FLAIR_ITEMS.includes(item));
+          assert.equal(item.slot, slot);
+          // It matches the requested id only when that id was a valid member of this slot.
+          const requested = selection[slot];
+          assert.equal(item.id, requested);
+        } else {
+          // Empty slot: the requested id (if any) was unknown or wrong-slot.
+          const requested = selection[slot];
+          const valid = typeof requested === 'string' && flairForSlot(slot).some((f) => f.id === requested);
+          assert.equal(valid, false);
+        }
+      }
+    }),
+    RUNS
+  );
+});
+
+test('every flair item belongs to exactly one known slot (Req 12.1)', () => {
+  for (const item of FLAIR_ITEMS) {
+    assert.ok(FLAIR_SLOTS.includes(item.slot), `${item.id} slot`);
+    assert.equal(typeof item.kind, 'string');
+  }
+  assert.equal(new Set(flairIds).size, flairIds.length); // unique ids
+});
+
+test('flairForSlot returns only that slot’s items; resolveFlair/isFlairId validate', () => {
+  for (const slot of FLAIR_SLOTS) {
+    for (const item of flairForSlot(slot)) assert.equal(item.slot, slot);
+  }
+  assert.equal(resolveFlair('nope'), null);
+  assert.equal(isFlairId('baseballCap'), true);
+  assert.equal(isFlairId('nope'), false);
+});
+
+test('a wrong-slot id resolves that slot to empty (Req 12.7)', () => {
+  // 'necktie' is a neck item; placing it in the hat slot must not apply it.
+  const resolved = resolveFlairSelection({ hat: 'necktie' });
+  assert.equal(resolved.hat, null);
+});
+
+test('resolveAppearance carries validated flair and persistable flairIds (Req 12.4)', () => {
+  const a = resolveAppearance({ flair: { hat: 'cowboyHat', neck: 'scarfRed' } });
+  assert.equal(a.flair.hat.id, 'cowboyHat');
+  assert.equal(a.flair.neck.id, 'scarfRed');
+  assert.deepEqual(a.flairIds, { hat: 'cowboyHat', neck: 'scarfRed' });
+  // Idempotent: re-resolving a resolved appearance preserves flair.
+  const b = resolveAppearance(a);
+  assert.deepEqual(b.flairIds, { hat: 'cowboyHat', neck: 'scarfRed' });
+});
+
+test('missing or empty flair resolves every slot to null (Req 12.8)', () => {
+  const a = resolveAppearance({});
+  assert.equal(a.flair.hat, null);
+  assert.equal(a.flair.neck, null);
+  assert.deepEqual(a.flairIds, { hat: null, neck: null });
 });

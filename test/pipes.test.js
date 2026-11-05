@@ -87,6 +87,38 @@ test('Property 13: Pipe gaps respect margins and fixed height', () => {
   );
 });
 
+// Feature: flappy-kiro, Property 27: Generated pipe gaps are always playable
+test('Property 27: Generated pipe gaps are always playable', () => {
+  // Build arbitrary configs across AND beyond the tunable ranges, to prove the
+  // defensive clamp in generatePipe keeps every gap inside the play area.
+  const cfgArb = fc.record({
+    GROUND_HEIGHT_FACTOR: fc.double({ min: 0.05, max: 0.30, noNaN: true }), // beyond the 0.18 cap
+    GHOSTY_HEIGHT_FACTOR: fc.double({ min: 0.05, max: 0.20, noNaN: true }), // beyond the 0.12 cap
+    PIPE_GAP_MARGIN_FACTOR: fc.double({ min: 0.05, max: 0.30, noNaN: true }), // beyond the 0.15 cap
+    PIPE_GAP_GHOSTY_MULTIPLE: fc.double({ min: 1.5, max: 5.0, noNaN: true }), // beyond the 3.5 cap
+  });
+  fc.assert(
+    fc.property(dimsArb, cfgArb, fc.double({ min: 0, max: 0.9999, noNaN: true }), (dimsBase, over, r) => {
+      const config = { ...CONFIG, ...over };
+      const dims = { ...dimsBase, groundHeight: Math.round(dimsBase.height * config.GROUND_HEIGHT_FACTOR) };
+      const groundTop = dims.height - dims.groundHeight;
+      const gh = dims.height * config.GHOSTY_HEIGHT_FACTOR;
+      const pipe = generatePipe(dims, () => r, dims.width, config, gh, 0);
+
+      // The gap stays within [0, groundTop]: it never pokes above the ceiling
+      // nor overflows into the ground strip.
+      assert.ok(pipe.gapTop >= -1e-6, `gapTop ${pipe.gapTop}`);
+      assert.ok(pipe.gapBottom <= groundTop + 1e-6, `gapBottom ${pipe.gapBottom} vs groundTop ${groundTop}`);
+      // Both pipe segments have non-negative height.
+      assert.ok(pipe.gapTop <= pipe.gapBottom, 'gapTop below gapBottom');
+      assert.ok(groundTop - pipe.gapBottom >= -1e-6, 'bottom segment non-negative');
+      // The gap itself is positive (a passable opening exists).
+      assert.ok(pipe.gapBottom - pipe.gapTop > 0, 'gap has positive height');
+    }),
+    RUNS
+  );
+});
+
 // Feature: flappy-kiro, Property 14: Off-screen pipes are culled
 test('Property 14: Off-screen pipes are culled', () => {
   fc.assert(

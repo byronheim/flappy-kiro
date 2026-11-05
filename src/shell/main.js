@@ -6,7 +6,14 @@
 import { createWorld } from '../core/engine.js';
 import { DEFAULT_DIFFICULTY } from '../core/difficulty.js';
 import { resolveConfig, withLiveOverrides } from './config.js';
-import { loadHighScore, saveHighScore, loadAppearance, saveAppearance } from './storage.js';
+import {
+  loadHighScore,
+  saveHighScore,
+  loadAppearance,
+  saveAppearance,
+  loadBestDistance,
+  saveBestDistance,
+} from './storage.js';
 import { resolveAppearance } from '../core/theme.js';
 import { createInput } from './input.js';
 import { render } from './renderer.js';
@@ -66,8 +73,11 @@ async function main() {
   // ids with defaults applied (Req 11.4/11.5, 16).
   let appearance = resolveAppearance(loadAppearance());
 
+  // Best distance from storage (Req 13.6).
+  const bestDistance = loadBestDistance(config);
+
   // Build the world (Ready state) and reach Ready immediately (Req 2.1).
-  let world = createWorld(dims, highScore, config);
+  let world = createWorld(dims, highScore, config, Math.random, bestDistance);
 
   const rawInput = createInput(canvas);
 
@@ -109,7 +119,7 @@ async function main() {
   const panel = createTuningPanel({
     defaults: config,
     mount: stage || undefined,
-    appearance: { colorId: appearance.colorId, environmentId: appearance.environmentId },
+    appearance: { colorId: appearance.colorId, environmentId: appearance.environmentId, flair: { ...appearance.flairIds } },
     onChange: (raw) => {
       liveOverrides = raw;
       config = withLiveOverrides(raw, { difficulty });
@@ -117,10 +127,14 @@ async function main() {
       world = { ...world, dims: { ...world.dims, groundHeight: Math.round(config.GROUND_HEIGHT_FACTOR * dims.height) } };
       return config;
     },
-    // Color/environment picks apply live and persist (Req 11.2/11.3, 16).
+    // Color/environment/flair picks apply live and persist (Req 11.2/11.3, 12.5, 16).
     onAppearanceChange: (sel) => {
       appearance = resolveAppearance(sel);
-      saveAppearance({ colorId: appearance.colorId, environmentId: appearance.environmentId });
+      saveAppearance({
+        colorId: appearance.colorId,
+        environmentId: appearance.environmentId,
+        flair: { ...appearance.flairIds },
+      });
     },
   });
   const gearBtn = document.getElementById('gear-btn');
@@ -132,7 +146,8 @@ async function main() {
     difficulty = name;
     config = withLiveOverrides(liveOverrides, { difficulty });
     dims.groundHeight = Math.round(config.GROUND_HEIGHT_FACTOR * dims.height);
-    world = createWorld(dims, world.highScore, config);
+    // Preserve the session's high score and best distance across the rebuild.
+    world = createWorld(dims, world.highScore, config, Math.random, world.bestDistance);
   };
   const diffBar = document.getElementById('difficulty-bar');
   if (diffBar) {
@@ -170,7 +185,7 @@ async function main() {
     input,
     render: (w) => render(ctx, w, assets, config, appearance),
     audio,
-    storage: { saveHighScore },
+    storage: { saveHighScore, saveBestDistance },
     getConfig: () => config,
   });
 }

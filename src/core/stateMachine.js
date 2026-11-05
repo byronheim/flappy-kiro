@@ -36,9 +36,18 @@ export function advanceState(world, intents, dt, config) {
   if (status === States.READY) {
     if (intents.flap) {
       // Ready -> Playing: zero velocity, reset score, clear prompt. (Req 2.4, 2.5, 4.5, 7.1)
+      // Also reset the per-session distance and marker highlight state (Req 13.2).
       const ghosty = { ...world.ghosty, vy: 0 };
       return {
-        world: { ...world, status: States.PLAYING, ghosty, score: 0 },
+        world: {
+          ...world,
+          status: States.PLAYING,
+          ghosty,
+          score: 0,
+          distanceTraveled: 0,
+          markerReached: false,
+          markerHighlightElapsed: 0,
+        },
         startedPlaying: true,
         enteredGameOver: false,
       };

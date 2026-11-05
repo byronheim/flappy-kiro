@@ -43,6 +43,12 @@ export const CONFIG = Object.freeze({
   // Ready state
   GHOSTY_START_Y_FACTOR: 0.4, // Req 2.2: fixed vertical start, upper-middle
 
+  // Best-distance ground marker (Req 13)
+  MARKER_WIDTH_FACTOR: 0.012, // marker post width, * play-area width
+  MARKER_HEIGHT_FACTOR: 0.5, // marker post height, * ground-strip height
+  MARKER_HIGHLIGHT_MS: 900, // how long the "reached best distance" highlight shows
+
   // Persistence (Req 8)
   HIGH_SCORE_KEY: 'flappyKiro.highScore',
+  BEST_DISTANCE_KEY: 'flappyKiro.bestDistance', // Req 13.5, 13.6
 });

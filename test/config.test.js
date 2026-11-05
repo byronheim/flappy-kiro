@@ -31,7 +31,7 @@ test('merge precedence: defaults <- global <- URL <- live', () => {
 test('tunable clamping: gravity, ghosty height, flap impulse', () => {
   assert.equal(resolveConfig({ global: { GRAVITY: 99999 }, search: '' }).GRAVITY, 2400);
   assert.equal(resolveConfig({ global: { GRAVITY: 0 }, search: '' }).GRAVITY, 800);
-  assert.equal(resolveConfig({ global: { GHOSTY_HEIGHT_FACTOR: 0.3 }, search: '' }).GHOSTY_HEIGHT_FACTOR, 0.15);
+  assert.equal(resolveConfig({ global: { GHOSTY_HEIGHT_FACTOR: 0.3 }, search: '' }).GHOSTY_HEIGHT_FACTOR, 0.12);
   assert.equal(resolveConfig({ global: { FLAP_IMPULSE: 100 }, search: '' }).FLAP_IMPULSE, 300);
   assert.equal(resolveConfig({ global: { FLAP_IMPULSE: 5000 }, search: '' }).FLAP_IMPULSE, 700);
 });

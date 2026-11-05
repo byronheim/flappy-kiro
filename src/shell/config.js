@@ -30,16 +30,23 @@ const LOCKED_KEYS = [
 // gameplay fields below were previously locked to spec-fixed values; they are
 // now freely tunable within sensible ranges so the game is configurable, while
 // clamping still guarantees an override can never produce an invalid state.
+// Note on the vertical-geometry fields (ground, ghosty height, gap margin, gap
+// multiple): their maxima are chosen so that even stacked at their extremes the
+// pipe gap still fits the play area with placement variety to spare. The budget
+// is `2*margin + gapMultiple*ghostyHeight` against `height - groundHeight`; with
+// these bounds the worst case leaves ~50px of span (generatePipe also clamps
+// defensively as a final guard). Widening any of these maxima risks an
+// unplayable gap, so they are deliberately conservative.
 const RANGES = {
   GRAVITY: [800, 2400],
   FLAP_IMPULSE: [300, 700],
-  GROUND_HEIGHT_FACTOR: [0.05, 0.2],
-  GHOSTY_HEIGHT_FACTOR: [0.05, 0.15],
+  GROUND_HEIGHT_FACTOR: [0.05, 0.18],
+  GHOSTY_HEIGHT_FACTOR: [0.05, 0.12],
   // Newly tunable gameplay parameters:
   PIPE_SPEED_FACTOR: [0.1, 0.8], // play-area widths per second
   PIPE_SPACING_FACTOR: [0.3, 1.0], // * play-area width between pipe pairs
-  PIPE_GAP_MARGIN_FACTOR: [0.05, 0.25], // * play-area height, top & bottom
-  PIPE_GAP_GHOSTY_MULTIPLE: [1.5, 4.0], // gap height = N * Ghosty height
+  PIPE_GAP_MARGIN_FACTOR: [0.05, 0.15], // * play-area height, top & bottom
+  PIPE_GAP_GHOSTY_MULTIPLE: [1.5, 3.5], // gap height = N * Ghosty height
   MAX_FALL_SPEED: [600, 1800], // px/s cap on downward velocity
 };
 

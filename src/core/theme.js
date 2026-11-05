@@ -91,6 +91,86 @@ export const ENVIRONMENTS = Object.freeze([
 
 export const DEFAULT_ENVIRONMENT_ID = ENVIRONMENTS[0].id;
 
+// --- Ghosty Flair (Req 12) ---------------------------------------------------
+/**
+ * @typedef {object} FlairItem
+ * @property {string} id     stable identifier persisted to storage
+ * @property {string} label  human-readable name for the UI
+ * @property {string} slot   the Flair_Slot this item occupies ('hat' | 'neck')
+ * @property {string} kind   how renderer.js should draw it
+ * @property {object} [colors]  CSS colors the renderer uses for this item
+ */
+
+// The fixed Flair_Slots. Each slot holds at most one item at a time (Req 12.2).
+export const FLAIR_SLOTS = Object.freeze(['hat', 'neck']);
+
+// The predefined set of Flair items, each in exactly one slot (Req 12.1). The
+// `kind` tells the renderer which shape routine to use; `colors` parameterize
+// it. Positions are resolved against Ghosty's bounds at draw time, so items
+// scale with the sprite and render in every state Ghosty appears (Req 12.4).
+export const FLAIR_ITEMS = Object.freeze([
+  // Hats
+  Object.freeze({
+    id: 'baseballCap', label: 'Baseball Cap', slot: 'hat', kind: 'baseballCap',
+    colors: Object.freeze({ cap: '#d23b3b', brim: '#b02e2e' }),
+  }),
+  Object.freeze({
+    id: 'beanie', label: 'Beanie', slot: 'hat', kind: 'beanie',
+    colors: Object.freeze({ body: '#2f7d4f', cuff: '#1f5c39', pom: '#f2f2f2' }),
+  }),
+  Object.freeze({
+    id: 'cowboyHat', label: 'Cowboy Hat', slot: 'hat', kind: 'cowboyHat',
+    colors: Object.freeze({ felt: '#8a5a2b', band: '#4a2f16' }),
+  }),
+  // Neckwear
+  Object.freeze({
+    id: 'necktie', label: 'Necktie', slot: 'neck', kind: 'necktie',
+    colors: Object.freeze({ tie: '#283593', knot: '#1a2566' }),
+  }),
+  Object.freeze({
+    id: 'scarfRed', label: 'Red Scarf', slot: 'neck', kind: 'scarf',
+    colors: Object.freeze({ scarf: '#d6372f' }),
+  }),
+  Object.freeze({
+    id: 'scarfBlue', label: 'Blue Scarf', slot: 'neck', kind: 'scarf',
+    colors: Object.freeze({ scarf: '#2f77d6' }),
+  }),
+]);
+
+/** @param {string} [id] @returns {FlairItem|null} the item, or null if unknown. */
+export function resolveFlair(id) {
+  return FLAIR_ITEMS.find((f) => f.id === id) || null;
+}
+
+/** @param {string} [id] @returns {boolean} true if id is a known flair item. */
+export function isFlairId(id) {
+  return FLAIR_ITEMS.some((f) => f.id === id);
+}
+
+/** @param {string} slot @returns {FlairItem[]} items belonging to that slot. */
+export function flairForSlot(slot) {
+  return FLAIR_ITEMS.filter((f) => f.slot === slot);
+}
+
+/**
+ * Resolve a raw flair selection (a slot->id map, possibly with unknown ids or
+ * ids placed in the wrong slot) into a validated slot->FlairItem map. An
+ * unknown id, or an id whose item does not belong to that slot, yields null for
+ * that slot - i.e. empty (Req 12.7, 12.8). Every known slot is always present.
+ *
+ * @param {{ hat?: string, neck?: string }} [selection]
+ * @returns {{ hat: FlairItem|null, neck: FlairItem|null }}
+ */
+export function resolveFlairSelection(selection) {
+  const sel = selection || {};
+  const out = {};
+  for (const slot of FLAIR_SLOTS) {
+    const item = resolveFlair(sel[slot]);
+    out[slot] = item && item.slot === slot ? item : null;
+  }
+  return out;
+}
+
 /**
  * Look up a color option by id. Falls back to the default when the id is
  * unknown or missing (Req 11.5).
@@ -124,19 +204,36 @@ export function isEnvironmentId(id) {
 /**
  * Resolve a raw, possibly-invalid appearance selection into a concrete,
  * fully-populated appearance. Unknown or missing ids fall back to defaults so
- * rendering always has valid data (Req 11.5, 16).
+ * rendering always has valid data (Req 11.5, 12.7, 16).
  *
- * @param {{ colorId?: string, environmentId?: string }} [selection]
- * @returns {{ colorId: string, environmentId: string, color: ColorOption, environment: Environment }}
+ * `flairIds` is the persisted slot->id map; `flair` is the validated
+ * slot->FlairItem map the renderer consumes (null = empty slot).
+ *
+ * @param {{ colorId?: string, environmentId?: string, flair?: { hat?: string, neck?: string } }} [selection]
+ * @returns {{
+ *   colorId: string, environmentId: string,
+ *   color: ColorOption, environment: Environment,
+ *   flairIds: { hat: string|null, neck: string|null },
+ *   flair: { hat: FlairItem|null, neck: FlairItem|null }
+ * }}
  */
 export function resolveAppearance(selection) {
   const sel = selection || {};
   const color = resolveColor(sel.colorId);
   const environment = resolveEnvironment(sel.environmentId);
+  // Accept either a raw `flair` slot->id map or an already-resolved
+  // appearance's `flairIds`, so this function is idempotent: re-resolving a
+  // resolved appearance (as the renderer does each frame) preserves flair.
+  const flairSource = sel.flairIds || sel.flair;
+  const flair = resolveFlairSelection(flairSource);
+  const flairIds = {};
+  for (const slot of FLAIR_SLOTS) flairIds[slot] = flair[slot] ? flair[slot].id : null;
   return Object.freeze({
     colorId: color.id,
     environmentId: environment.id,
     color,
     environment,
+    flairIds: Object.freeze(flairIds),
+    flair: Object.freeze(flair),
   });
 }

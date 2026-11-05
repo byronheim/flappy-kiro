@@ -178,6 +178,7 @@ _Note on prior requirements: the specific gameplay values fixed in Requirements 
 5. THE Game SHALL allow gameplay parameters to be configured within bounded ranges, and THE Game SHALL clamp any configured value to its allowed range so that a configuration can never produce an invalid game state.
 6. WHILE no difficulty mode or configuration is explicitly selected, THE Game SHALL default to Normal difficulty with the Requirements 1–10 default values.
 7. THE Game SHALL keep the frame-time clamp, cloud opacity bounds, and restart lockout fixed and SHALL NOT allow them to be changed by player- or URL-supplied configuration.
+8. THE Game SHALL bound the vertical-geometry parameters (Ground height, Ghosty height, Pipe_Gap margin, and Pipe_Gap height multiple) so that even when all are set to their configured extremes at once, the resulting Pipe_Gap still fits within the Play_Area above the Ground with placement variety remaining; and THE Game SHALL additionally clamp the generated gap defensively so that no configuration can produce a Pipe_Gap that overflows the Ground or collapses to a non-positive opening.
 
 ### Requirement 15: Play Area Aspect
 
@@ -203,7 +204,10 @@ _Note on prior requirements: the specific gameplay values fixed in Requirements 
 
 ## Future Enhancements
 
-_The requirements in this section are out of scope for the initial release and are not part of the initial version of Flappy Kiro. They are documented here as future enhancements and will be addressed in a later iteration._
+_This section was originally deferred, but has since been implemented:
+**Requirement 11 (Ghosty color)**, **Requirement 12 (Ghosty flair)**, and
+**Requirement 13 (best-distance ground marker)** are all implemented, along with
+the added **Requirement 16 (Environment themes)** above._
 
 ### Requirement 11: Ghosty Color Customization
 

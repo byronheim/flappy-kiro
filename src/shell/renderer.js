@@ -6,6 +6,11 @@ import { States } from '../core/stateMachine.js';
 import { resolveAppearance } from '../core/theme.js';
 
 const PLACEHOLDER_COLOR = '#e0e0e0';
+// Best-distance marker colors (theme-independent so it stays visible on any
+// environment). The highlight color is a bright pulse on first reaching it.
+const MARKER_COLOR = '#f5f5f5';
+const MARKER_FLAG_COLOR = '#ffca28';
+const MARKER_HIGHLIGHT_COLOR = '#ffffff';
 
 // Cache of tinted sprite canvases, keyed by color+size, so the per-frame hot
 // path reuses one offscreen canvas per color instead of re-tinting every frame.
@@ -54,6 +59,99 @@ export function getTintedSprite(sprite, color, w, h) {
   }
   tintCache.set(key, { sprite, canvas: off });
   return off;
+}
+
+/**
+ * Draw a single Flair item over Ghosty's bounds. Each `kind` has a small shape
+ * routine; all coordinates are derived from the sprite box so flair scales with
+ * Ghosty and stays aligned in every state (Req 12.4). A null item draws nothing
+ * (empty slot; Req 12.8). Pure drawing - never mutates world state.
+ *
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {import('../core/theme.js').FlairItem|null} item
+ * @param {number} x sprite left
+ * @param {number} y sprite top
+ * @param {number} w sprite width
+ * @param {number} h sprite height
+ */
+function drawFlairItem(ctx, item, x, y, w, h) {
+  if (!item) return;
+  const c = item.colors || {};
+  const r = (n) => Math.round(n);
+
+  switch (item.kind) {
+    case 'baseballCap': {
+      // Dome across the top of the head + a brim pointing right (facing).
+      const capH = h * 0.26;
+      ctx.fillStyle = c.cap || '#d23b3b';
+      ctx.fillRect(r(x + w * 0.12), r(y - capH * 0.3), r(w * 0.72), r(capH));
+      // Brim.
+      ctx.fillStyle = c.brim || '#b02e2e';
+      ctx.fillRect(r(x + w * 0.62), r(y + capH * 0.45), r(w * 0.5), r(capH * 0.35));
+      break;
+    }
+    case 'beanie': {
+      // Rounded body with a cuff band and a little pom on top.
+      const bodyH = h * 0.3;
+      ctx.fillStyle = c.body || '#2f7d4f';
+      ctx.fillRect(r(x + w * 0.14), r(y - bodyH * 0.35), r(w * 0.72), r(bodyH));
+      ctx.fillStyle = c.cuff || '#1f5c39';
+      ctx.fillRect(r(x + w * 0.1), r(y + bodyH * 0.4), r(w * 0.8), r(bodyH * 0.32));
+      // Pom.
+      ctx.fillStyle = c.pom || '#f2f2f2';
+      ctx.beginPath();
+      ctx.arc(r(x + w * 0.5), r(y - bodyH * 0.45), Math.max(2, r(w * 0.1)), 0, Math.PI * 2);
+      ctx.fill();
+      break;
+    }
+    case 'cowboyHat': {
+      // Wide brim + a crown; a band across the crown base.
+      const crownH = h * 0.26;
+      const brimY = y + crownH * 0.35;
+      ctx.fillStyle = c.felt || '#8a5a2b';
+      // Brim (wider than the head).
+      ctx.fillRect(r(x - w * 0.18), r(brimY), r(w * 1.36), r(h * 0.1));
+      // Crown.
+      ctx.fillRect(r(x + w * 0.2), r(y - crownH * 0.4), r(w * 0.6), r(crownH));
+      // Band.
+      ctx.fillStyle = c.band || '#4a2f16';
+      ctx.fillRect(r(x + w * 0.2), r(brimY - h * 0.05), r(w * 0.6), r(h * 0.05));
+      break;
+    }
+    case 'necktie': {
+      // Knot just under the chin + a tapering tie down the front.
+      const cx = x + w * 0.5;
+      const knotW = w * 0.2;
+      const knotY = y + h * 0.62;
+      ctx.fillStyle = c.knot || '#1a2566';
+      ctx.fillRect(r(cx - knotW / 2), r(knotY), r(knotW), r(h * 0.12));
+      // Tie body: a downward triangle.
+      ctx.fillStyle = c.tie || '#283593';
+      ctx.beginPath();
+      ctx.moveTo(r(cx - knotW / 2), r(knotY + h * 0.12));
+      ctx.lineTo(r(cx + knotW / 2), r(knotY + h * 0.12));
+      ctx.lineTo(r(cx), r(knotY + h * 0.4));
+      ctx.closePath();
+      ctx.fill();
+      break;
+    }
+    case 'scarf': {
+      // A band around the neck plus a long tail streaming to the left (the
+      // direction Ghosty travels from), giving a sense of motion.
+      const neckY = y + h * 0.6;
+      const bandH = h * 0.16;
+      ctx.fillStyle = c.scarf || '#d6372f';
+      // Neck band.
+      ctx.fillRect(r(x + w * 0.1), r(neckY), r(w * 0.8), r(bandH));
+      // Streaming tail: a few stepped segments trailing left and down.
+      const tailW = w * 0.55;
+      ctx.fillRect(r(x - tailW * 0.4), r(neckY + bandH * 0.2), r(tailW), r(bandH * 0.8));
+      ctx.fillRect(r(x - tailW * 0.9), r(neckY + bandH * 0.7), r(tailW * 0.8), r(bandH * 0.7));
+      break;
+    }
+    default:
+      break;
+  }
 }
 
 /**
@@ -141,6 +239,33 @@ export function render(ctx, world, assets, config = {}, appearance = {}) {
   ctx.fillStyle = GROUND_COLOR;
   ctx.fillRect(0, Math.round(groundTop), dims.width, Math.round(dims.groundHeight));
 
+  // 4b) Best-distance ground marker (Req 13.3/13.4). Only while Playing and a
+  // positive best distance exists. The marker lives at the best-distance point
+  // in world space; since Ghosty's screen x is fixed and the world scrolls
+  // left, its screen x is ghostyX + (bestDistance - distanceTraveled), so it
+  // scrolls toward the player at the same rate as pipes and the ground.
+  if (world.status === States.PLAYING && world.bestDistance > 0) {
+    const markerScreenX = world.ghosty.x + (world.bestDistance - world.distanceTraveled);
+    const mw = Math.max(2, Math.round((config.MARKER_WIDTH_FACTOR || 0.012) * dims.width));
+    const mh = Math.round((config.MARKER_HEIGHT_FACTOR || 0.5) * dims.groundHeight);
+    const mx = Math.round(markerScreenX - mw / 2);
+    // Only draw when at least partially within horizontal bounds (Req 10.2).
+    if (mx + mw >= 0 && mx <= dims.width) {
+      // A brief highlight pulse right after the player first reaches it.
+      const highlightMs = config.MARKER_HIGHLIGHT_MS || 900;
+      const highlighting = world.markerReached && world.markerHighlightElapsed <= highlightMs;
+      // Post sits on the ground: a thin pennant pole plus a flag near the top.
+      const poleTop = Math.round(groundTop - mh);
+      ctx.fillStyle = highlighting ? MARKER_HIGHLIGHT_COLOR : MARKER_COLOR;
+      ctx.fillRect(mx, poleTop, mw, Math.round(groundTop) - poleTop);
+      // Pennant flag to the right of the pole top.
+      const flagH = Math.max(3, Math.round(mh * 0.35));
+      const flagW = Math.max(4, Math.round(mw * 2.5));
+      ctx.fillStyle = highlighting ? MARKER_HIGHLIGHT_COLOR : MARKER_FLAG_COLOR;
+      ctx.fillRect(mx + mw, poleTop, flagW, flagH);
+    }
+  }
+
   // 5) Ghosty: sprite if loaded, else a solid placeholder of equal bounds
   // (Req 1.3, 1.4). The chosen palette color tints the sprite (Req 11.2): the
   // default 'ghost' color leaves the sprite as-is; any other color tints only
@@ -160,6 +285,13 @@ export function render(ctx, world, assets, config = {}, appearance = {}) {
     ctx.fillStyle = tint || PLACEHOLDER_COLOR;
     ctx.fillRect(gx, gy, gw, gh);
   }
+
+  // 5b) Flair: hats and neckwear drawn over Ghosty, positioned relative to the
+  // sprite bounds so they render in every state Ghosty appears (Req 12.4). An
+  // empty slot draws nothing (Req 12.8).
+  const flair = resolveAppearance(appearance).flair;
+  drawFlairItem(ctx, flair.neck, gx, gy, gw, gh); // neck first (under the hat)
+  drawFlairItem(ctx, flair.hat, gx, gy, gw, gh);
 
   // 6) HUD: current score and high score as integers, centered in the ground
   // footer bar to match the reference UI (Req 7.3, 7.4).

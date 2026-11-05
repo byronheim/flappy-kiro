@@ -692,6 +692,36 @@ The property semantics are unchanged by the tuning feature. Where a property ref
 
 **Validates: Requirements 11.3, 11.4, 11.5, 16**
 
+### Property 23: Distance accrues at pipe speed and the marker triggers exactly once
+
+*For all* Playing-state frame sequences, `distanceTraveled` increases by exactly `pipeSpeed * dt` each frame (independent of score), and when a positive best distance is set, the marker's one-shot `markerReached` flag flips from false to true exactly once — on the first frame the accrued distance reaches the best distance — and never flips back within the session.
+
+**Validates: Requirements 13.1, 13.4**
+
+### Property 24: Best distance load validates, and improvement persists
+
+*For all* stored strings, loading the best distance returns the parsed value when it is a non-negative finite number and 0 otherwise; and *for all* session/prior pairs, entering GameOver sets best distance to the session distance and emits a `persistBestDistance` effect if and only if the session distance strictly exceeds the prior best.
+
+**Validates: Requirements 13.5, 13.6, 13.7**
+
+### Property 25: Flair resolution respects slots and validates membership
+
+*For all* raw flair selections (including unknown ids, ids placed in the wrong slot, and missing slots), `resolveFlairSelection` returns at most one item per slot; every returned item belongs to the predefined set and to the slot it is keyed under; an unknown id or a wrong-slot id yields an empty slot; and every known slot is always present in the result.
+
+**Validates: Requirements 12.1, 12.2, 12.3, 12.7**
+
+### Property 26: Flair persistence round-trips valid selections and clears empties
+
+*For all* slot->id maps drawn from the predefined items (and the empty selection), saving the appearance to storage and loading it back resolves to the same per-slot items; a selection that clears a slot resolves that slot to empty; corrupt or non-JSON stored values resolve all slots to empty.
+
+**Validates: Requirements 12.5, 12.6, 12.8, 12.9**
+
+### Property 27: Generated pipe gaps are always playable
+
+*For all* play-area dimensions and *for all* configs — including the extremes of the tunable ranges and values beyond them — `generatePipe` produces a gap that fits inside the play area: `gapTop >= 0`, `gapBottom <= groundTop` (the gap never overflows into the ground), and the gap height is positive (both pipe segments have non-negative height). The vertical-geometry ranges are additionally bounded so that even stacking `ground`, `ghosty height`, `gap margin`, and `gap multiple` at their maxima leaves placement span to spare; `generatePipe` clamps defensively as a final guard so no config can ever yield an unplayable gap.
+
+**Validates: Requirements 5.3, 5.4, 6 (playability)**
+
 ---
 
 ## Testing Strategy
@@ -792,23 +822,56 @@ evolves, so physics, collision, and scoring stay color-blind and deterministic.
 The `step()` contract is unchanged: this is pure data + rendering along the
 boundaries already defined above.
 
-## Extension Points for Future Enhancements
+## Best-Distance Ground Marker (Req 13) — implemented
 
-Requirements 12–13 remain **out of scope** for this version and are not designed
-here. The architecture reserves these seams so they can be added without
-restructuring:
+The marker is implemented along the existing seams, keeping the core pure and
+effects-as-data:
 
-- **Ghosty flair (Req 12):** flair rides the same `appearance` seam now used for
-  color — a per-slot flair-id map validated in `theme.js`, drawn by
-  `renderer.js` over Ghosty, and persisted by `storage.js` in the same
-  `flappyKiro.appearance` blob. The simulation core is unaffected.
-- **Best-distance ground marker (Req 13):** `World` already accumulates
-  horizontal progress (`distanceSincePipe`); a future `distanceTraveled`
-  accumulator and a persisted `bestDistance` (loaded/validated by `storage.js`
-  like the high score) would drive a ground marker drawn by `renderer.js`. The
-  marker scrolls with the ground at the existing pipe speed, so it reuses the
-  current scroll math. The one-shot highlight is a render flag set in the core,
-  mirroring the `scored` flag pattern already used for pipes.
+- **Distance core (pure):** `src/core/distance.js` advances `distanceTraveled`
+  by `pipeSpeed * dt` each Playing frame (same units as pipe/ground scroll, so
+  it maps directly to a screen offset), and flips a per-session one-shot
+  `markerReached` flag exactly once on the first frame the accrued distance
+  reaches a positive `bestDistance`, starting a `markerHighlightElapsed` timer.
+  `resolveBestDistance` decides, on GameOver, whether the session beat the
+  stored best.
+- **Engine wiring:** `engine.step()` calls `updateDistance` in the Playing
+  branch and, on the GameOver transition, emits a `persistBestDistance` effect
+  iff the session distance strictly exceeds the prior best (alongside the
+  existing high-score effect). `createWorld` seeds `distanceTraveled`,
+  `bestDistance`, and the marker flags; entering Playing resets the per-session
+  fields (Req 13.2).
+- **Rendering:** `renderer.js` draws a pennant post on the ground while Playing
+  and `bestDistance > 0`, at `ghostyX + (bestDistance - distanceTraveled)`, so
+  it scrolls left with the world at pipe speed and passes the player; a brief
+  highlight color shows while `markerHighlightElapsed` is within
+  `MARKER_HIGHLIGHT_MS`.
+- **Persistence:** `storage.js` adds `loadBestDistance`/`saveBestDistance` (a
+  non-negative finite number, else 0), guarded like the high score (Req 13.6,
+  13.7). The loop forwards the `persistBestDistance` effect to `saveBestDistance`.
 
-None of these require changes to the core `step()` contract; they extend data
-and rendering along existing boundaries.
+## Ghosty Flair (Req 12) — implemented
+
+Flair rides the same `appearance` seam as color/environment, keeping it a
+presentation-only concern the simulation core never sees:
+
+- **Flair data (pure core):** `src/core/theme.js` adds `FLAIR_SLOTS`
+  (`hat`, `neck`) and `FLAIR_ITEMS` — a fixed set, each item in exactly one slot
+  (Req 12.1), with a `kind` the renderer draws and `colors` that parameterize
+  it. `resolveFlairSelection` validates a raw slot->id map into a slot->item map:
+  at most one item per slot (Req 12.2/12.3), and an unknown or wrong-slot id
+  yields an empty slot (Req 12.7/12.8). `resolveAppearance` is idempotent over
+  `flairIds`/`flair` so re-resolving a resolved appearance preserves it.
+- **Rendering:** `renderer.js` draws the neck item then the hat over Ghosty's
+  bounds (so they scale and stay aligned in every state Ghosty appears, Req
+  12.4). Per-`kind` routines draw a baseball cap, beanie, cowboy hat, necktie,
+  and a streaming scarf (two colors). An empty slot draws nothing (Req 12.8).
+- **Persistence:** the `flairIds` slot->id map is stored inside the existing
+  `flappyKiro.appearance` blob; `storage.js` keeps only string ids and a corrupt
+  blob resolves all slots to empty (Req 12.5, 12.6, 12.9).
+- **Selection UI:** the options dialog's **Flair** tab offers a per-slot picker
+  (a "None" option plus the slot's items); picking one preserves the other slot
+  and the color/environment selections.
+
+All customization (Req 11, 12, 16) and the best-distance marker (Req 13) now
+extend data and rendering along existing boundaries without touching the core
+`step()` contract.

@@ -9,6 +9,7 @@ import { applyGravity, integrate, applyFlap } from './physics.js';
 import { updatePipes, cullPipes } from './pipes.js';
 import { updateScore } from './scoring.js';
 import { seedClouds, updateClouds } from './clouds.js';
+import { updateDistance, resolveBestDistance } from './distance.js';
 
 /** @returns {number} Ghosty's height resolved from the play area. */
 function ghostyHeight(dims, config) {
@@ -21,9 +22,10 @@ function ghostyHeight(dims, config) {
  * @param {number} highScore
  * @param {object} config
  * @param {() => number} [rng]
+ * @param {number} [bestDistance]  persisted best distance (Req 13.6)
  * @returns {object} World
  */
-export function createWorld(dims, highScore, config, rng = Math.random) {
+export function createWorld(dims, highScore, config, rng = Math.random, bestDistance = 0) {
   const h = ghostyHeight(dims, config);
   const w = h; // square sprite bounds
   const ghosty = {
@@ -45,6 +47,13 @@ export function createWorld(dims, highScore, config, rng = Math.random) {
     distanceSincePipe: 0,
     gameOverElapsed: 0,
     nextPipeId: 0,
+    // Best-distance ground marker (Req 13). distanceTraveled accrues while
+    // Playing; bestDistance persists across sessions; the highlight is a
+    // per-session one-shot driven by markerReached + markerHighlightElapsed.
+    distanceTraveled: 0,
+    bestDistance: bestDistance >= 0 ? bestDistance : 0,
+    markerReached: false,
+    markerHighlightElapsed: 0,
   };
 }
 
@@ -91,6 +100,19 @@ export function step(state, dt, intents, rng, config) {
     // 6) Scoring.
     const scored = updateScore(world.score, ghosty, pipesCulled);
 
+    // 7) Distance tracking + best-distance marker one-shot (Req 13.1, 13.4).
+    const dist = updateDistance(
+      {
+        distanceTraveled: world.distanceTraveled,
+        markerReached: world.markerReached,
+        markerHighlightElapsed: world.markerHighlightElapsed,
+      },
+      dt,
+      world.bestDistance,
+      world.dims,
+      config
+    );
+
     world = {
       ...world,
       ghosty,
@@ -99,9 +121,12 @@ export function step(state, dt, intents, rng, config) {
       score: scored.score,
       nextPipeId: pu.nextPipeId,
       distanceSincePipe: pu.distanceSincePipe,
+      distanceTraveled: dist.state.distanceTraveled,
+      markerReached: dist.state.markerReached,
+      markerHighlightElapsed: dist.state.markerHighlightElapsed,
     };
 
-    // 7) Collision -> GameOver (exactly one transition). (Req 6.1-6.4)
+    // 8) Collision -> GameOver (exactly one transition). (Req 6.1-6.4)
     const col = checkCollision(world, config);
     world = col.world;
     if (col.enteredGameOver) {
@@ -109,6 +134,12 @@ export function step(state, dt, intents, rng, config) {
       if (world.score > world.highScore) {
         world = { ...world, highScore: world.score }; // Req 8.1
         effects.push({ type: 'persistHighScore', value: world.highScore }); // Req 8.2
+      }
+      // Best distance: update and persist only when the session beat it (Req 13.5).
+      const best = resolveBestDistance(world.distanceTraveled, world.bestDistance);
+      if (best.improved) {
+        world = { ...world, bestDistance: best.bestDistance };
+        effects.push({ type: 'persistBestDistance', value: best.bestDistance }); // Req 13.5
       }
     }
   }

@@ -52,6 +52,8 @@ export function startLoop(deps) {
     for (const effect of effects) {
       if (effect.type === 'persistHighScore') {
         storage.saveHighScore(effect.value, getConfig());
+      } else if (effect.type === 'persistBestDistance' && storage.saveBestDistance) {
+        storage.saveBestDistance(effect.value, getConfig());
       }
     }
   };

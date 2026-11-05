@@ -331,7 +331,7 @@ Tasks build incrementally: scaffolding and defaults first, then each pure core m
 - Each of the 20 Correctness Properties maps to exactly one property-based `fast-check` test (Properties 1–3 in task 4; 4, 7, 15, 16, 18 in task 8; 5, 20 in task 7; 6 in task 11; 8, 9, 10 in task 2; 11–14 in task 3; 17 in task 6; 19 in task 10), each tagged `// Feature: flappy-kiro, Property {number}: {property_text}` and configured for a minimum of 100 iterations.
 - Property tests cover the pure core's universal logic; example, edge-case, rendering, config-clamping, integration, and smoke tests cover concrete scenarios, I/O boundaries, rendering, cadence, and the dev-only config/tuning layer.
 - `config.js` / `tuningPanel.js` are developer tooling: with no overrides and the panel untouched, the effective CONFIG is value-equal to `constants.js`, so Requirements 1–10 behavior is unchanged.
-- Requirements 11–13 (color, flair, best-distance marker) are out of scope and intentionally have no tasks.
+- Requirements 11–13 (color, flair, best-distance marker) and Requirement 16 (environment themes) were originally out of scope for this plan; they were subsequently implemented as follow-on work (see requirements.md and design.md), each shipping with its own property and example tests. This plan's checklist covers Requirements 1–10 plus the config/tuning system.
 
 ## Task Dependency Graph
 

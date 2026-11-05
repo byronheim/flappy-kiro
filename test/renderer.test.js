@@ -45,6 +45,9 @@ function recordingCtx() {
     moveTo(x, y) {
       calls.push({ op: 'moveTo', x, y });
     },
+    lineTo(x, y) {
+      calls.push({ op: 'lineTo', x, y });
+    },
     arc(x, y, r, start, end) {
       calls.push({ op: 'arc', x, y, r, start, end });
     },
@@ -243,6 +246,133 @@ test('placeholder (sprite failed) uses the chosen color when not ghost (Req 1.4,
   );
   assert.ok(placeholder);
   assert.equal(placeholder.fillStyle, '#4a90e2');
+});
+
+// --- Flair (Req 12.4, 12.8) --------------------------------------------------
+
+function flairOps(appearance) {
+  // Render twice: once with no flair, once with the given flair; return the
+  // draw ops that the flair added (by count difference is fragile, so we detect
+  // ops drawn above/around Ghosty that the no-flair render did not make).
+  const base = recordingCtx();
+  const world = { ...createWorld(dims, 0, CONFIG, () => 0.5), status: States.PLAYING };
+  render(base, world, loadedAssets, CONFIG, { colorId: 'ghost', environmentId: 'sky' });
+  const withFlair = recordingCtx();
+  render(withFlair, world, loadedAssets, CONFIG, { colorId: 'ghost', environmentId: 'sky', ...appearance });
+  return { base: base.calls, withFlair: withFlair.calls, g: world.ghosty };
+}
+
+test('selecting a hat draws extra marks above Ghosty (Req 12.4)', () => {
+  const { base, withFlair, g } = flairOps({ flair: { hat: 'baseballCap' } });
+  assert.ok(withFlair.length > base.length, 'hat should add draw ops');
+  // At least one fillRect sits above Ghosty's vertical center (the cap dome).
+  const aboveHead = withFlair.some(
+    (c) => c.op === 'fillRect' && c.y < Math.round(g.y + g.h * 0.4) && c.x >= Math.round(g.x - g.w) && c.x <= Math.round(g.x + g.w * 2)
+  );
+  assert.ok(aboveHead, 'expected a cap mark above Ghosty');
+});
+
+test('selecting a neck scarf draws extra marks and streams to the left (Req 12.4)', () => {
+  const { base, withFlair, g } = flairOps({ flair: { neck: 'scarfRed' } });
+  assert.ok(withFlair.length > base.length);
+  // A scarf tail segment extends to the left of Ghosty.
+  const trailing = withFlair.some((c) => c.op === 'fillRect' && c.x < Math.round(g.x));
+  assert.ok(trailing, 'expected a scarf tail left of Ghosty');
+});
+
+test('an empty flair selection draws nothing extra (Req 12.8)', () => {
+  const { base, withFlair } = flairOps({ flair: { hat: null, neck: null } });
+  assert.equal(withFlair.length, base.length);
+});
+
+test('flair is drawn after the Ghosty sprite/tint (Req 12.4; draw order)', () => {
+  const g = createWorld(dims, 0, CONFIG, () => 0.5).ghosty;
+
+  // Render without flair, and with flair, from the same world.
+  const world = { ...createWorld(dims, 0, CONFIG, () => 0.5), status: States.PLAYING };
+  const bare = recordingCtx();
+  render(bare, world, loadedAssets, CONFIG, { colorId: 'red', environmentId: 'sky' });
+  const withFlair = recordingCtx();
+  render(withFlair, world, loadedAssets, CONFIG, {
+    colorId: 'red', environmentId: 'sky', flair: { hat: 'baseballCap', neck: 'scarfRed' },
+  });
+
+  // The sprite is drawn via drawImage at Ghosty's bounds (the tint, if any, is
+  // composited onto that sprite offscreen before this draw).
+  const spriteIdx = withFlair.calls.findIndex(
+    (c) => c.op === 'drawImage' && c.x === Math.round(g.x) && c.y === Math.round(g.y)
+  );
+  assert.ok(spriteIdx !== -1, 'sprite should be drawn');
+
+  // Flair adds ops, and the flair render shares the same op prefix as the
+  // no-flair render up to and including the sprite draw - proving the extra
+  // flair ops are appended AFTER the sprite/tint, never before it.
+  assert.ok(withFlair.calls.length > bare.calls.length, 'flair adds ops');
+  for (let i = 0; i <= spriteIdx; i += 1) {
+    assert.equal(withFlair.calls[i].op, bare.calls[i].op, `prefix op mismatch at ${i}`);
+  }
+  // The first op that differs (the start of the flair draws) is after the sprite.
+  let firstDiff = -1;
+  for (let i = 0; i < Math.min(withFlair.calls.length, bare.calls.length); i += 1) {
+    if (withFlair.calls[i].op !== bare.calls[i].op) { firstDiff = i; break; }
+  }
+  // If no op type differs in the shared range, the extra ops are purely trailing.
+  if (firstDiff === -1) firstDiff = bare.calls.length;
+  assert.ok(firstDiff > spriteIdx, 'flair ops come after the sprite/tint');
+});
+
+test('both slots can be worn at once (Req 12.2/12.4)', () => {
+  const { base, withFlair } = flairOps({ flair: { hat: 'cowboyHat', neck: 'necktie' } });
+  // More ops than a single item would add.
+  const single = flairOps({ flair: { hat: 'cowboyHat' } });
+  assert.ok(withFlair.length > single.withFlair.length);
+  assert.ok(withFlair.length > base.length);
+});
+
+// --- Best-distance ground marker (Req 13.3) ----------------------------------
+
+test('the best-distance marker is drawn while Playing when best > 0 (Req 13.3)', () => {
+  const ctx = recordingCtx();
+  const base = createWorld(dims, 0, CONFIG, () => 0.5, 1000);
+  const world = {
+    ...base,
+    status: States.PLAYING,
+    bestDistance: 1000,
+    distanceTraveled: 900, // marker is 100px ahead of Ghosty in world space
+  };
+  render(ctx, world, loadedAssets, CONFIG);
+
+  const expectedX = world.ghosty.x + (world.bestDistance - world.distanceTraveled); // ghostyX + 100
+  // A marker post rect is drawn near that screen x, above the ground line.
+  const groundTop = dims.height - dims.groundHeight;
+  const post = ctx.calls.find(
+    (c) => c.op === 'fillRect' && Math.abs(c.x - Math.round(expectedX)) <= 4 && c.y < groundTop && c.y >= groundTop - dims.groundHeight
+  );
+  assert.ok(post, 'expected a marker post drawn above the ground at the best-distance offset');
+});
+
+test('no marker is drawn when best distance is 0 (Req 13.3)', () => {
+  const ctx = recordingCtx();
+  const world = { ...createWorld(dims, 0, CONFIG, () => 0.5, 0), status: States.PLAYING, bestDistance: 0 };
+  render(ctx, world, loadedAssets, CONFIG);
+  // Only the full-width ground rect touches the ground band; no narrow marker post.
+  const groundTop = dims.height - dims.groundHeight;
+  const narrowPost = ctx.calls.find(
+    (c) => c.op === 'fillRect' && c.y < groundTop && c.y >= groundTop - dims.groundHeight && c.w < dims.width
+  );
+  assert.equal(narrowPost, undefined);
+});
+
+test('no marker is drawn in the Ready state (Req 13.3)', () => {
+  const ctx = recordingCtx();
+  const world = { ...createWorld(dims, 0, CONFIG, () => 0.5, 1000), bestDistance: 1000, distanceTraveled: 0 };
+  // status is Ready by default from createWorld.
+  render(ctx, world, loadedAssets, CONFIG);
+  const groundTop = dims.height - dims.groundHeight;
+  const narrowPost = ctx.calls.find(
+    (c) => c.op === 'fillRect' && c.y < groundTop && c.y >= groundTop - dims.groundHeight && c.w < dims.width
+  );
+  assert.equal(narrowPost, undefined);
 });
 
 test('getTintedSprite tints on an isolated offscreen canvas using source-atop (Req 11.2)', () => {

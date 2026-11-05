@@ -176,3 +176,65 @@ test('Ready -> Playing on flap zeroes velocity, resets score, clears prompt', ()
   // vy was zeroed on entry, then one gravity step applied (so it is small/positive, not 999).
   assert.ok(state.ghosty.vy < 999);
 });
+
+// --- Best-distance marker wiring (Req 13.1, 13.2, 13.5) ----------------------
+
+// Feature: flappy-kiro, Property 24: Best distance load validates, and improvement persists
+test('Property 24 (persist): entering GameOver persists best distance iff the session beat it', () => {
+  fc.assert(
+    fc.property(
+      fc.double({ min: 0, max: 50000, noNaN: true }),
+      fc.double({ min: 0, max: 50000, noNaN: true }),
+      (sessionDistance, priorBest) => {
+        const base = createWorld(dims, 0, CONFIG, rng, priorBest);
+        const world = {
+          ...base,
+          status: States.PLAYING,
+          distanceTraveled: sessionDistance,
+          ghosty: { ...base.ghosty, y: -5 }, // force a ceiling collision this step
+        };
+        const { state, effects } = step(world, CONFIG.DT_MIN, { flap: false }, rng, CONFIG);
+        assert.equal(state.status, States.GAME_OVER);
+        // The session distance includes one extra frame of travel; best is the max.
+        const persists = effects.filter((e) => e.type === 'persistBestDistance');
+        if (state.distanceTraveled > priorBest) {
+          assert.equal(state.bestDistance, state.distanceTraveled);
+          assert.equal(persists.length, 1);
+          assert.equal(persists[0].value, state.bestDistance);
+        } else {
+          assert.equal(state.bestDistance, priorBest);
+          assert.equal(persists.length, 0);
+        }
+      }
+    ),
+    RUNS
+  );
+});
+
+test('entering Playing resets distance and marker state for the new session (Req 13.2)', () => {
+  const base = createWorld(dims, 0, CONFIG, rng, 500);
+  const world = {
+    ...base,
+    distanceTraveled: 999, // stale from a prior session
+    markerReached: true,
+    markerHighlightElapsed: 400,
+  };
+  const { state } = step(world, CONFIG.DT_MIN, { flap: true }, rng, CONFIG);
+  assert.equal(state.status, States.PLAYING);
+  // distance restarts at ~one frame of travel, marker flags cleared.
+  assert.ok(state.distanceTraveled < 999);
+  assert.equal(state.markerReached, false);
+  // bestDistance from the prior session is preserved.
+  assert.equal(state.bestDistance, 500);
+});
+
+test('distanceTraveled stays frozen in Ready and during the GameOver lockout (Req 13; freeze)', () => {
+  // Ready: no flap -> no distance accrual.
+  const ready = { ...createWorld(dims, 0, CONFIG, rng, 100), distanceTraveled: 42 };
+  const r = step(ready, CONFIG.DT_MAX, { flap: false }, rng, CONFIG);
+  assert.equal(r.state.distanceTraveled, 42);
+  // GameOver (locked): no distance accrual.
+  const over = { ...createWorld(dims, 0, CONFIG, rng, 100), status: States.GAME_OVER, distanceTraveled: 77, gameOverElapsed: 0 };
+  const o = step(over, CONFIG.DT_MAX, { flap: false }, rng, CONFIG);
+  assert.equal(o.state.distanceTraveled, 77);
+});

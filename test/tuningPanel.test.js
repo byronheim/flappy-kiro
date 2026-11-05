@@ -86,11 +86,11 @@ function makeKeyTarget() {
 }
 
 function findInput(panelRoot, predicate) {
-  // Walk the tree to find the number input matching predicate.
+  // Walk the tree to find the settings slider (a range input) matching predicate.
   const stack = [panelRoot];
   while (stack.length) {
     const el = stack.pop();
-    if (el.type === 'number' && predicate(el)) return el;
+    if ((el.type === 'range' || el.type === 'number') && predicate(el)) return el;
     for (const c of el.children || []) stack.push(c);
   }
   return null;
@@ -208,6 +208,58 @@ test('picking an environment swatch fires onAppearanceChange with the full selec
   panel.destroy();
 });
 
+test('picking a flair item fires onAppearanceChange with the slot set, preserving others', () => {
+  const { doc } = makeDom();
+  const keyTarget = makeKeyTarget();
+  const changes = [];
+  const panel = createTuningPanel({
+    onChange: (raw) => withLiveOverrides(raw, { global: {}, search: '' }),
+    defaults: DEFAULTS,
+    appearance: { colorId: 'blue', environmentId: 'forest', flair: { hat: null, neck: null } },
+    onAppearanceChange: (sel) => changes.push(sel),
+    doc,
+    keyTarget,
+  });
+
+  // Find the "Cowboy Hat" button in the hat slot via its data attributes.
+  const panelRoot = doc.body.children[0];
+  const findBtn = (slot, id) => {
+    const stack = [panelRoot];
+    while (stack.length) {
+      const el = stack.pop();
+      if (el.tagName === 'button' && el.dataset && el.dataset.flairSlot === slot && el.dataset.flairId === id) return el;
+      for (const c of el.children || []) stack.push(c);
+    }
+    return null;
+  };
+
+  const cowboy = findBtn('hat', 'cowboyHat');
+  assert.ok(cowboy, 'expected a cowboy hat button');
+  cowboy.dispatch('click');
+  assert.equal(changes.length, 1);
+  assert.equal(changes[0].flair.hat, 'cowboyHat');
+  assert.equal(changes[0].colorId, 'blue'); // preserved
+  assert.equal(changes[0].environmentId, 'forest'); // preserved
+  assert.equal(panel.appearance().colorId, 'blue');
+
+  // Now pick a neck scarf; the hat selection must be preserved.
+  const scarf = findBtn('neck', 'scarfBlue');
+  assert.ok(scarf);
+  scarf.dispatch('click');
+  assert.equal(changes.length, 2);
+  assert.equal(changes[1].flair.hat, 'cowboyHat');
+  assert.equal(changes[1].flair.neck, 'scarfBlue');
+
+  // Clear the hat via the "None" button (data-flair-id === '').
+  const none = findBtn('hat', '');
+  assert.ok(none);
+  none.dispatch('click');
+  assert.equal(changes.length, 3);
+  assert.equal(changes[2].flair.hat, null);
+  assert.equal(changes[2].flair.neck, 'scarfBlue'); // neck preserved
+  panel.destroy();
+});
+
 test('an invalid persisted appearance resolves to defaults in the panel', () => {
   const { doc } = makeDom();
   const keyTarget = makeKeyTarget();
@@ -241,11 +293,47 @@ test('editing a field routes through config.js and reflects the clamped value', 
   const gravityInput = findInput(panelRoot, (el) => el.max === '2400');
   assert.ok(gravityInput, 'gravity input exists');
 
+  // The settings controls are sliders (range inputs).
+  assert.equal(gravityInput.type, 'range');
+
   // Type an out-of-range value; it must clamp to 2400 on screen.
   gravityInput.value = '99999';
   gravityInput.dispatch('change');
   assert.equal(lastEffective.GRAVITY, 2400);
   assert.equal(gravityInput.value, '2400');
+});
+
+test('dragging a settings slider updates its live value readout (input event)', () => {
+  const { doc } = makeDom();
+  const keyTarget = makeKeyTarget();
+  createTuningPanel({
+    onChange: (raw) => withLiveOverrides(raw, { global: {}, search: '' }),
+    defaults: DEFAULTS,
+    doc,
+    keyTarget,
+  });
+  const panelRoot = doc.body.children[0];
+  const gravity = findInput(panelRoot, (el) => el.max === '2400');
+  assert.ok(gravity);
+
+  // The value readout is the sibling <span> in the same block's head line.
+  // Find a span whose text currently shows the gravity default.
+  const findReadout = (text) => {
+    const stack = [panelRoot];
+    while (stack.length) {
+      const el = stack.pop();
+      if (el.tagName === 'span' && el.textContent === text) return el;
+      for (const c of el.children || []) stack.push(c);
+    }
+    return null;
+  };
+  const readout = findReadout(String(DEFAULTS.GRAVITY));
+  assert.ok(readout, 'expected a value readout showing the gravity default');
+
+  // Dragging (input event) updates the readout live, without clamping yet.
+  gravity.value = '1234';
+  gravity.dispatch('input');
+  assert.equal(readout.textContent, '1234');
 });
 
 test('reset to defaults restores default values', () => {

@@ -57,6 +57,50 @@ export function saveHighScore(value, config, store) {
   }
 }
 
+// --- Best distance persistence (Req 13.5, 13.6, 13.7) ------------------------
+
+/**
+ * Read and validate the best distance. Returns a non-negative finite number, or
+ * 0 when the value is missing, non-numeric, or negative (Req 13.6, 13.7).
+ * Unlike the high score, distance is a float, so no integer check is applied.
+ *
+ * @param {object} config
+ * @param {Storage} [store]  injectable for tests
+ * @returns {number}
+ */
+export function loadBestDistance(config, store) {
+  const s = resolveStore(store);
+  if (!s) return 0;
+  let raw;
+  try {
+    raw = s.getItem(config.BEST_DISTANCE_KEY);
+  } catch {
+    return 0;
+  }
+  if (raw === null || raw === undefined || raw === '') return 0; // Req 13.7
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return 0; // Req 13.7
+  return n === 0 ? 0 : n; // normalize -0 to +0
+}
+
+/**
+ * Persist the best distance. Swallows any failure so a storage error never
+ * interrupts gameplay (mirrors saveHighScore). (Req 13.5)
+ *
+ * @param {number} value
+ * @param {object} config
+ * @param {Storage} [store]  injectable for tests
+ */
+export function saveBestDistance(value, config, store) {
+  const s = resolveStore(store);
+  if (!s) return;
+  try {
+    s.setItem(config.BEST_DISTANCE_KEY, String(value));
+  } catch {
+    // Keep the in-memory value; do not interrupt gameplay.
+  }
+}
+
 // --- Appearance (Ghosty color + environment) persistence (Req 11.3/11.4, 16) -
 // The selection is stored as a small JSON blob under its own key. Validation
 // of the ids themselves lives in core/theme.js (resolveAppearance); this module
@@ -88,19 +132,29 @@ export function loadAppearance(store) {
       const out = {};
       if (typeof parsed.colorId === 'string') out.colorId = parsed.colorId;
       if (typeof parsed.environmentId === 'string') out.environmentId = parsed.environmentId;
+      // Flair: a slot->id map. Keep only string ids; validation of the ids
+      // against the predefined set happens downstream in theme.resolveAppearance
+      // (Req 12.6, 12.7). A malformed flair blob is simply dropped (Req 12.9).
+      if (parsed.flair && typeof parsed.flair === 'object') {
+        const flair = {};
+        for (const [slot, id] of Object.entries(parsed.flair)) {
+          if (typeof id === 'string') flair[slot] = id;
+        }
+        if (Object.keys(flair).length > 0) out.flair = flair;
+      }
       return out;
     }
     return {};
   } catch {
-    return {}; // corrupt JSON -> defaults applied downstream
+    return {}; // corrupt JSON -> defaults applied downstream (Req 12.9)
   }
 }
 
 /**
  * Persist the appearance selection. Swallows any failure so a storage error
- * never interrupts the UI (mirrors saveHighScore). (Req 11.3, 16)
+ * never interrupts the UI (mirrors saveHighScore). (Req 11.3, 12.5, 16)
  *
- * @param {{ colorId?: string, environmentId?: string }} selection
+ * @param {{ colorId?: string, environmentId?: string, flair?: { hat?: string, neck?: string } }} selection
  * @param {Storage} [store]  injectable for tests
  */
 export function saveAppearance(selection, store) {
@@ -109,6 +163,7 @@ export function saveAppearance(selection, store) {
   const payload = {
     colorId: selection && selection.colorId,
     environmentId: selection && selection.environmentId,
+    flair: (selection && selection.flair) || undefined,
   };
   try {
     s.setItem(APPEARANCE_KEY, JSON.stringify(payload));
